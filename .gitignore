@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+# Données et modèles lourds : ne pas versionner dans Git
+data/*
+models/*
+!data/.gitkeep
+!models/.gitkeep

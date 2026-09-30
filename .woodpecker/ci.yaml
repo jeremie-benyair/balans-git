@@ -1,0 +1,18 @@
+# CI Woodpecker (optionnel). N'est actif qu'après validation de la demande d'accès
+# sur ci.codeberg.org.
+when:
+  - event: [push, pull_request]
+
+steps:
+  - name: lint
+    image: python:3.11-slim
+    commands:
+      - pip install ruff
+      - ruff check src tests
+
+  - name: test
+    image: python:3.11-slim
+    commands:
+      - pip install -r requirements-dev.txt
+      - pip install -e .
+      - pytest -q
