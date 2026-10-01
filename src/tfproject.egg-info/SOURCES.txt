@@ -1,0 +1,14 @@
+LICENSE
+README.md
+pyproject.toml
+src/tfproject/__init__.py
+src/tfproject/data.py
+src/tfproject/evaluate.py
+src/tfproject/model.py
+src/tfproject/train.py
+src/tfproject.egg-info/PKG-INFO
+src/tfproject.egg-info/SOURCES.txt
+src/tfproject.egg-info/dependency_links.txt
+src/tfproject.egg-info/requires.txt
+src/tfproject.egg-info/top_level.txt
+tests/test_model.py
