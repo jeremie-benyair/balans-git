@@ -18,9 +18,9 @@ from pathlib import Path
 import streamlit as st
 
 DB_PATH = Path("data/balans.db")
-APPS = ["🎮 Jeux vidéo", "💬 Réseaux sociaux", "📺 Streaming", "🌐 Navigateur", "✉️ Messagerie"]
-GOAL_OTHER = "✨ Autre"
-GOALS = ["📚 Devoirs", "🍽️ Repas", "⚽ Sport", "😴 Sommeil", "👨‍👩‍👧 Famille", GOAL_OTHER]
+APPS = ["Jeux vidéo", "Réseaux sociaux", "Streaming", "Navigateur", "Messagerie"]
+GOAL_OTHER = "Autre"
+GOALS = ["Devoirs", "Repas", "Sport", "Sommeil", "Famille", GOAL_OTHER]
 AVATARS = ["🦊", "🐺", "🦉", "🐙", "🦄", "🐢"]
 LEVELS = ["Explorateur", "Régulier", "Ancré", "Stratège", "Maître de son temps"]
 STATUS = {"active": "En cours", "completed": "Menée à terme", "stopped": "Arrêtée avant la fin",
@@ -52,6 +52,9 @@ def connect():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    if "signed_at" not in [r["name"] for r in con.execute("PRAGMA table_info(rules)")]:
+        con.execute("ALTER TABLE rules ADD COLUMN signed_at TEXT")   # date à laquelle les deux ont signé
+        con.commit()
     return con
 
 
@@ -151,13 +154,15 @@ def level_info(xp):
 
 
 def compute_badges(done, active_rules):
-    """Retourne tous les badges : (nom, description, obtenu ?)."""
+    """Retourne tous les badges : (nom, description, obtenu ?, progression)."""
+    days = len({s["start"][:10] for s in done})
+    long_session = any(s["duration_min"] >= 60 for s in done)
     return [
-        ("Premier engagement", "Une première session menée à terme", len(done) >= 1),
-        ("Régularité", "5 sessions menées à terme", len(done) >= 5),
-        ("Concentration", "Une session d'au moins 1 h", any(s["duration_min"] >= 60 for s in done)),
-        ("Constance", "Des sessions sur 3 jours différents", len({s["start"][:10] for s in done}) >= 3),
-        ("Co-constructeur", "Une règle définie à deux", bool(active_rules)),
+        ("Premier engagement", "Une première session menée à terme", len(done) >= 1, f"{min(len(done), 1)}/1"),
+        ("Régularité", "5 sessions menées à terme", len(done) >= 5, f"{min(len(done), 5)}/5"),
+        ("Concentration", "Une session d'au moins 1 h", long_session, f"{int(long_session)}/1"),
+        ("Constance", "Des sessions sur 3 jours différents", days >= 3, f"{min(days, 3)}/3"),
+        ("Co-constructeur", "Une règle définie à deux", bool(active_rules), f"{int(bool(active_rules))}/1"),
     ]
 
 
@@ -333,7 +338,7 @@ TODO_EXAMPLES = {  # Q1 -> tâches pré-remplies de la todolist
     "rien": ["10 min : un jeu de société", "10 min : une partie de cartes", "10 min : construire un truc",
              "10 min : dessiner un perso", "10 min : cuisiner quelque chose"],
 }
-APP_FOR_Q6 = {"jeux": "🎮 Jeux vidéo", "reseaux": "💬 Réseaux sociaux", "streaming": "📺 Streaming"}
+APP_FOR_Q6 = {"jeux": "Jeux vidéo", "reseaux": "Réseaux sociaux", "streaming": "Streaming"}
 Q3_PALIER = {"parents": 1, "depend": 2, "moi": 3}
 Q2_ORDER = ["lt15", "15_30", "30_60", "gt60"]
 PAUSE_PLAN = {"lt15": (10, 3), "15_30": (20, 5), "30_60": (30, 5)}  # (toutes les X min, pause de Y min)
@@ -356,6 +361,21 @@ PALIERS = {
         "L'ado fixe ses propres objectifs de blocage. Le cadre se réduit à quelques périodes non négociables "
         "(nuit, repas), définies une fois pour toutes. Les récompenses portent sur la régularité."),
 }
+PALIER_NAMES = {1: "Structure fixe", 2: "Structure souple", 3: "Autonomie"}
+# Ce que chaque palier veut dire (version ado, version tuteur) : on décrit, on ne promet pas encore de fonction.
+PALIER_MEANING = {
+    1: ("Des créneaux fixés ensemble, qui ne bougent pas tout seuls. Tu peux toujours ajouter des blocages volontaires.",
+        "Des créneaux fixés ensemble, qui ne bougent pas tout seuls. Votre ado peut toujours ajouter des blocages volontaires."),
+    2: ("Le volume de blocage est fixé ensemble ; toi, tu choisis quand placer tes pauses dans la journée.",
+        "Le volume de blocage est fixé ensemble ; votre ado choisit quand placer ses pauses dans la journée."),
+    3: ("Tu fixes toi-même tes objectifs. Seules quelques périodes (nuit, repas) restent communes.",
+        "Votre ado fixe lui-même ses objectifs. Seules quelques périodes (nuit, repas) restent communes."),
+}
+PALIER_NOW = {
+    1: ("Vous avez fixé vos créneaux ensemble.", "Vous avez fixé les créneaux ensemble."),
+    2: ("Le volume est fixé ensemble, tu choisis quand.", "Le volume est fixé ensemble, votre ado choisit quand."),
+    3: ("Tu fixes toi-même tes objectifs.", "Votre ado fixe lui-même ses objectifs."),
+}
 MODULES = {
     "temps": ("Palier de temps et statistiques de suivi", "Le temps total passé est la préoccupation principale."),
     "horaires": ("Minuteur et réglage des rappels", "Le respect des horaires est la préoccupation principale."),
@@ -365,8 +385,8 @@ MODULES = {
 }
 REWARD_TEXT = {
     "immediat": "Une récompense sur le moment : chaque tâche cochée et chaque session terminée.",
-    "paliers": "Des points cumulés vers des étapes visibles, avec une récompense à chaque étape.",
-    "mixte": "Les deux systèmes en parallèle : récompense immédiate et étapes visibles.",
+    "paliers": "Des points cumulés vers des niveaux visibles, avec une récompense à chaque niveau.",
+    "mixte": "Les deux systèmes en parallèle : récompense immédiate et niveaux visibles.",
 }
 ALERT_TEXT = {"visuel": "alerte visuelle", "son": "alerte sonore",
               "rien": "compte à rebours affiché, sans alerte renforcée"}
@@ -460,10 +480,27 @@ def palier_validated_by(who_key):
 def validate_palier(who_key, cfg):
     set_setting("palier_ok_teen" if who_key == "teen" else "palier_ok_tutor", "1")
     if palier_validated_by("teen") and palier_validated_by("tutor"):
+        set_setting(f"palier_date_{palier_target(cfg)}", now().date().isoformat())
         set_setting("palier", str(palier_target(cfg)))
         set_setting("palier_since", now().date().isoformat())
         for key in ("palier_target", "palier_ok_teen", "palier_ok_tutor"):
             set_setting(key, "")
+
+
+def gauge_word(percent):
+    """La jauge se dit avec des mots, jamais avec un décompte de jours."""
+    return "Début" if percent < 25 else "En route" if percent < 60 else "Presque" if percent < 100 else "Prêt"
+
+
+MONTHS_SHORT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."]
+
+
+def short_date(iso):
+    """'2026-11-12' -> '12 nov.'"""
+    if not iso:
+        return ""
+    d = datetime.fromisoformat(iso[:10])
+    return f"{d.day} {MONTHS_SHORT[d.month - 1]}"
 
 
 def gauge_percent():
@@ -504,6 +541,30 @@ def postpone(s):
             (s["id"], now().isoformat(), POSTPONE_MINUTES, s["goal"]))
 
 
+def set_rule_ok(rule_id, col, value):
+    """Approuve ou retire son accord ; la date de signature n'existe que lorsque les deux ont signé."""
+    execute(f"UPDATE rules SET {col}=? WHERE id=?", (value, rule_id))
+    r = query("SELECT teen_ok, parent_ok, signed_at FROM rules WHERE id=?", (rule_id,))[0]
+    if r["teen_ok"] and r["parent_ok"]:
+        if not r["signed_at"]:
+            execute("UPDATE rules SET signed_at=? WHERE id=?", (now().date().isoformat(), rule_id))
+    else:
+        execute("UPDATE rules SET signed_at=NULL WHERE id=?", (rule_id,))
+
+
+def decisions_for(me_key):
+    """Décisions communes ouvertes : (accords à ma réponse, accords en attente de l'autre, palier à confirmer
+    par moi, palier en attente de l'autre)."""
+    col = "teen_ok" if me_key == "teen" else "parent_ok"
+    mine, theirs = [], []
+    for r in query("SELECT * FROM rules ORDER BY id DESC"):
+        if r["teen_ok"] and r["parent_ok"]:
+            continue
+        (theirs if r[col] else mine).append(r)
+    palier_open = palier_current() is None or bool(get_setting("palier_target", ""))
+    return mine, theirs, palier_open and not palier_validated_by(me_key), palier_open and palier_validated_by(me_key)
+
+
 def create_night_rule(proposed_by, teen_ok, parent_ok):
     execute(
         "INSERT INTO rules(title, apps, slot, proposed_by, teen_ok, parent_ok) VALUES(?,?,?,?,?,?)",
@@ -540,21 +601,17 @@ CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Outfit:wght@300;400;500;600;700&display=swap');
 :root{
-  --cream:#EDEFFA; --cream-2:#DFE3F4; --ink:#262444; --ink-soft:#5E5C82;
-  --teal:#4F4CC0; --teal-deep:#37339B; --sage:#7FA6E6; --sage-soft:#D8E1F8;
-  --coral:#8E7CE0; --coral-soft:#E0D7F7; --amber:#F0B84E; --sky:#A9C8F0;
-  --line:rgba(38,36,68,.10); --shadow:0 18px 40px -18px rgba(55,51,155,.45);
+  /* Même identité (indigo, bleu, ambre, Fraunces + Outfit), mais le violet est réservé à l'action principale */
+  --cream:#F4F6FA; --cream-2:#E6EAF2; --ink:#222640; --ink-soft:#5A6079;
+  --teal:#4F4CC0; --teal-deep:#37339B; --sage:#7FA6E6; --sage-soft:#E1EAFA;
+  --coral:#E9A23B; --coral-soft:#FFF0D2; --amber:#F0B84E; --amber-soft:#FFF6E2; --amber-ink:#7A4B00;
+  --sky:#A9C8F0; --line:rgba(34,38,64,.10); --shadow:0 14px 30px -22px rgba(34,38,64,.45);
 }
-.stApp{
-  color:var(--ink);
-  background:
-    radial-gradient(1200px 600px at 15% -5%, #f3f1fc 0%, transparent 60%),
-    radial-gradient(900px 700px at 110% 10%, #e3e9fa 0%, transparent 55%),
-    linear-gradient(160deg,#e7e6f7 0%, #dde0f3 100%);
-}
+.stApp{color:var(--ink);background:linear-gradient(180deg,#F8F9FC 0%,#EEF1F7 100%)}
 header[data-testid="stHeader"]{background:transparent}
 [data-testid="stToolbar"],[data-testid="stDecoration"],footer,#MainMenu{display:none !important}
-.block-container{max-width:780px;padding:2rem 1rem 4rem}
+.block-container{max-width:1200px;padding:2rem 2.2rem 4rem}
+@media (max-width:640px){.block-container{padding:1.2rem 1rem 3rem}}
 .stApp, .stApp p, .stApp label, .stApp input, .stApp textarea, .stApp button, .stApp li{
   font-family:'Outfit',sans-serif;
 }
@@ -571,141 +628,290 @@ header[data-testid="stHeader"]{background:transparent}
   line-height:1;padding:0;margin:0;color:var(--ink)}
 .brand p{font-size:13px;color:var(--ink-soft);margin:3px 0 0;line-height:1.3}
 
-/* ---- Sélecteur de profil (toggle) ---- */
+/* ---- Sélecteur de profil : petit contrôle rectangulaire, plus de pilule ---- */
 .st-key-role_toggle{display:flex;justify-content:flex-end}
-.st-key-role_toggle [role="radiogroup"]{display:inline-flex;gap:0;background:#fff;border-radius:40px;
-  padding:5px;border:1px solid var(--line);box-shadow:0 6px 20px -10px rgba(55,51,155,.4)}
-.st-key-role_toggle label[data-testid="stRadioOption"]{margin:0;padding:9px 18px;border-radius:30px;
-  cursor:pointer;transition:.25s}
+.st-key-role_toggle > *{margin-left:auto}
+.st-key-role_toggle [role="radiogroup"]{display:inline-flex;gap:2px;background:#fff;border-radius:12px;
+  padding:4px;border:1px solid var(--line);box-shadow:none}
+.st-key-role_toggle label[data-testid="stRadioOption"]{margin:0;padding:8px 16px;border-radius:9px;
+  cursor:pointer;transition:.2s}
 .st-key-role_toggle label[data-testid="stRadioOption"] > div > div:first-child{display:none}
 .st-key-role_toggle label[data-testid="stRadioOption"] p{margin:0;font-weight:600;font-size:14px;color:var(--ink-soft)}
-.st-key-role_toggle label[data-selected="true"]{background:var(--teal);box-shadow:0 8px 18px -8px var(--teal)}
+.st-key-role_toggle label[data-selected="true"]{background:var(--teal)}
 .st-key-role_toggle label[data-selected="true"] p{color:#fff}
 
-/* ---- Onglets = contrôle segmenté ---- */
-.stApp [role="tablist"]{background:var(--cream-2);border-radius:30px;padding:4px;gap:0;border:none !important;
-  box-shadow:none}
-.stApp [data-testid="stTabs"] > div, .stApp [data-testid="stTabs"] > div::after{border-bottom:none !important}
-.stApp [data-testid="stTab"]{flex:1;justify-content:center;height:auto;padding:9px 6px;border-radius:24px;
-  background:none;border:none}
-.stApp [data-testid="stTab"] p{font-size:13px;font-weight:600;color:var(--ink-soft)}
-.stApp [data-testid="stTab"][aria-selected="true"]{background:#fff;box-shadow:0 4px 12px -6px var(--teal)}
-.stApp [data-testid="stTab"][aria-selected="true"] p{color:var(--teal)}
+/* ---- Onglets : simple soulignement, plus de segments en pilule ---- */
+.stApp [role="tablist"]{background:none;border-radius:0;padding:0;gap:4px;margin-top:10px;
+  border:none !important;border-bottom:1px solid var(--line) !important;box-shadow:none}
+.stApp [data-testid="stTab"]{flex:0 0 auto;justify-content:center;height:auto;padding:12px 18px;border-radius:0;
+  background:none;border:none;border-bottom:3px solid transparent;margin-bottom:-1px}
+.stApp [data-testid="stTab"] p{font-size:15px;font-weight:600;color:var(--ink-soft)}
+.stApp [data-testid="stTab"]:hover p{color:var(--ink)}
+.stApp [data-testid="stTab"][aria-selected="true"]{background:none;box-shadow:none;border-bottom-color:var(--teal)}
+.stApp [data-testid="stTab"][aria-selected="true"] p{color:var(--ink)}
+@media (max-width:640px){.stApp [data-testid="stTab"]{padding:10px 9px}.stApp [data-testid="stTab"] p{font-size:14px}}
 .stApp [role="tablist"] .react-aria-SelectionIndicator, .stApp [data-baseweb="tab-highlight"],
 .stApp [data-baseweb="tab-border"]{display:none}
 
-/* ---- Typographie ---- */
-.eyebrow{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--teal);
-  font-weight:700;margin:22px 0 6px}
-.stApp .h-title{font-family:'Fraunces',serif;font-weight:600;font-size:26px;letter-spacing:-.5px;line-height:1.1}
-.stApp .sub{font-size:13.5px;color:var(--ink-soft);line-height:1.45;margin:6px 0 0}
-.hint{font-size:12px;color:var(--ink-soft);text-align:center;margin-top:28px}
-.hint b{color:var(--teal)}
+/* ---- Typographie : une vraie échelle (titre de page > titre de section > texte) ---- */
+.eyebrow{font-size:11.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-soft);
+  font-weight:700;margin:26px 0 6px}
+.stApp .page-title{font-family:'Fraunces',serif;font-weight:600;font-size:40px;letter-spacing:-1px;
+  line-height:1.05;color:var(--ink)}
+@media (max-width:640px){.stApp .page-title{font-size:30px}}
+.stApp .h-title{font-family:'Fraunces',serif;font-weight:600;font-size:22px;letter-spacing:-.4px;line-height:1.15}
+.stApp .sub{font-size:14.5px;color:var(--ink-soft);line-height:1.5;margin:8px 0 0}
+.hint{font-size:12.5px;color:var(--ink-soft);text-align:center;margin-top:32px}
+.hint b{color:var(--ink)}
 
-/* ---- Cartes ---- */
-.card, div[class*="st-key-card_"]{background:#fff;border-radius:22px;padding:18px;
-  box-shadow:0 12px 28px -20px rgba(55,51,155,.5);border:1px solid var(--line);margin-top:14px}
+/* ---- Trois niveaux de contenant : panneau (surface de travail), bandeau (état), section (sans boîte) ---- */
+.card, div[class*="st-key-card_"]{background:#fff;border-radius:16px;padding:22px;
+  box-shadow:var(--shadow);border:1px solid var(--line);margin-top:16px}
 div[class*="st-key-card_"]{gap:.9rem}
-div[class*="st-key-card_"] .h-title{margin-bottom:4px}
-.card.teal{background:linear-gradient(150deg,var(--teal) 0%, var(--teal-deep) 120%);color:#fff;border:none}
+div[class*="st-key-card_"] .h-title{margin-bottom:2px}
+.card.teal{background:linear-gradient(150deg,var(--teal) 0%, var(--teal-deep) 120%);color:#fff;border:none;padding:26px}
 .card.teal .eyebrow{color:#d9d8ff;margin-top:0}
-.card.coral{background:linear-gradient(150deg,#9b8ae6,#8E7CE0);color:#fff;border:none}
-.big{font-family:'Fraunces',serif;font-size:46px;font-weight:600;letter-spacing:-1px;line-height:1.05;margin:6px 0 12px}
+.card.teal .sub{color:rgba(255,255,255,.88)}
+.big{font-family:'Fraunces',serif;font-size:64px;font-weight:600;letter-spacing:-2px;line-height:1;margin:8px 0 14px}
+@media (max-width:640px){.big{font-size:48px}}
 .bar{height:8px;background:rgba(255,255,255,.22);border-radius:10px;overflow:hidden;margin-bottom:14px}
 .bar i{display:block;height:100%;background:#fff;border-radius:10px}
 
-.pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;
-  background:var(--sage-soft);color:var(--teal-deep);padding:5px 11px;border-radius:30px;margin:0 6px 6px 0}
-.pill.coral{background:var(--coral-soft);color:#5b4b9e}
-.pill.muted{background:var(--cream-2);color:var(--ink-soft)}
-.card.teal .pill{background:rgba(255,255,255,.18);color:#fff}
-.tag{font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:3px 8px;border-radius:20px}
-.tag.ado{background:var(--sage-soft);color:var(--teal-deep)}
-.tag.par{background:var(--coral-soft);color:#5b4b9e}
+.sec{margin-top:30px}
+.sec-h{font-family:'Fraunces',serif;font-weight:600;font-size:20px;letter-spacing:-.3px;
+  margin:0 0 10px;padding-top:16px;border-top:1px solid var(--line)}
+.note{border-left:3px solid var(--sage);padding:2px 0 2px 16px;margin-top:20px}
+.note .eyebrow{margin:0 0 4px}
+.note.warn{border-left-color:var(--amber);background:var(--amber-soft);padding:14px 16px;border-radius:0 12px 12px 0}
+.note.warn .eyebrow{color:var(--amber-ink)}
+.card.coral{background:var(--amber-soft);border:none;border-left:3px solid var(--amber);border-radius:0 12px 12px 0;
+  box-shadow:none;padding:14px 16px}
+.card.coral .eyebrow{color:var(--amber-ink);margin-top:0}
+.topics{font-size:16px;font-weight:600;line-height:1.5}
 
-.row{display:flex;gap:10px;margin-top:14px}
-.stat{flex:1;background:#fff;border-radius:18px;padding:14px;border:1px solid var(--line);text-align:center}
-.stat b{font-family:'Fraunces',serif;font-size:22px;display:block;line-height:1}
-.stat span{font-size:11px;color:var(--ink-soft)}
+/* ---- Statuts et étiquettes : un point + du texte, plus de pilules ---- */
+.pill{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--ink);
+  background:none;padding:0;margin:0 16px 4px 0}
+.pill:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--sage);flex:0 0 8px}
+.pill.coral:before{background:var(--amber)}
+.pill.muted{color:var(--ink-soft);font-weight:500}
+.pill.muted:before{background:#C6CCDB}
+.card.teal .pill{color:#fff;font-weight:500}
+.card.teal .pill:before{background:rgba(255,255,255,.75)}
+.tag{font-size:11px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--ink-soft)}
+.tag.ado{color:var(--teal)} .tag.par{color:var(--amber-ink)} .tag.app{color:var(--ink-soft)}
 
-.ring{position:relative;width:130px;height:130px;margin:6px auto 0}
+/* ---- Chiffres : grands, sans boîtes ---- */
+.kpi{display:flex;align-items:center;gap:28px;flex-wrap:wrap;margin-top:8px}
+.stats{display:flex;flex-direction:column;gap:12px}
+.stat{display:flex;align-items:baseline;gap:10px}
+.stat b{font-family:'Fraunces',serif;font-size:34px;line-height:1;font-weight:600}
+.stat span{font-size:13.5px;color:var(--ink-soft)}
+.ring{position:relative;width:130px;height:130px}
 .ring svg{transform:rotate(-90deg)}
 .ring .center{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
 .ring .center b{font-family:'Fraunces',serif;font-size:30px;font-weight:600;line-height:1}
-.ring .center small{font-size:11px;color:var(--ink-soft)}
+.ring .center small{font-size:12px;color:var(--ink-soft)}
 
-.bars{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;height:110px;margin-top:12px}
+.bars{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;height:150px;margin-top:14px}
 .bars .col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;height:100%}
-.bars .col i{display:block;width:100%;max-width:34px;border-radius:10px 10px 6px 6px;
+.bars .col i{display:block;width:100%;max-width:44px;border-radius:8px 8px 4px 4px;
   background:linear-gradient(180deg,var(--sage),var(--teal))}
 .bars .col i.empty{height:6px;background:var(--cream-2)}
-.bars .col span{font-size:11px;color:var(--ink-soft);font-weight:600}
+.bars .col span{font-size:12px;color:var(--ink-soft);font-weight:600}
 .bars .col.today span{color:var(--teal)}
 
-.timeline{display:flex;flex-direction:column;margin-top:6px}
-.tl-item{display:flex;gap:12px;padding:11px 0}
-.tl-dot{width:14px;height:14px;border-radius:50%;background:var(--sage);margin-top:4px;flex:0 0 14px;position:relative}
-.tl-item:not(:last-child) .tl-dot:after{content:"";position:absolute;left:50%;top:16px;
-  width:2px;height:40px;background:var(--line);transform:translateX(-50%)}
-.tl-dot.stopped{background:var(--coral-soft)} .tl-dot.active{background:var(--teal)}
-.tl-item b{font-size:14px;display:block}
-.tl-item small{font-size:12px;color:var(--ink-soft);display:block;margin-top:2px}
+.timeline{display:flex;flex-direction:column;margin-top:2px}
+.tl-item{display:flex;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+.tl-item:last-child{border-bottom:none}
+.tl-dot{width:10px;height:10px;border-radius:50%;background:var(--sage);margin-top:6px;flex:0 0 10px}
+.tl-dot.stopped{background:#C6CCDB} .tl-dot.active{background:var(--teal)}
+.tl-item b{font-size:14.5px;display:block}
+.tl-item small{font-size:12.5px;color:var(--ink-soft);display:block;margin-top:2px}
 
-.profile{display:flex;align-items:center;gap:14px}
-.avatar{width:64px;height:64px;border-radius:22px;display:grid;place-items:center;font-size:34px;
-  background:linear-gradient(150deg,var(--sage-soft),var(--coral-soft))}
-.xpbar{height:8px;background:var(--cream-2);border-radius:10px;overflow:hidden;margin:14px 0 4px}
+.profile{display:flex;align-items:center;gap:16px}
+.avatar{width:72px;height:72px;border-radius:20px;display:grid;place-items:center;font-size:38px;
+  background:linear-gradient(150deg,var(--sage-soft),var(--amber-soft))}
+.xpbar{height:8px;background:var(--cream-2);border-radius:10px;overflow:hidden;margin:16px 0 6px}
 .xpbar i{display:block;height:100%;background:var(--teal);border-radius:10px}
-.opt{display:flex;align-items:center;gap:12px;background:#fff;border:1.5px solid var(--line);
-  border-radius:16px;padding:12px 14px;margin-top:10px}
-.opt .emoji{font-size:22px;width:40px;height:40px;display:grid;place-items:center;
-  background:var(--cream);border-radius:12px;flex:0 0 40px}
-.opt b{font-size:14px;display:block}
-.opt small{font-size:11.5px;color:var(--ink-soft)}
+
+.steps{display:flex;margin:6px 0 4px}
+.step{flex:1;position:relative;padding-top:22px;min-width:0}
+.step:before{content:"";position:absolute;top:5px;left:0;right:0;height:2px;background:var(--cream-2)}
+.step i{position:absolute;top:0;left:0;width:12px;height:12px;border-radius:50%;background:var(--cream-2)}
+.step.on:before{background:var(--teal)} .step.on i{background:var(--teal)}
+.step b{font-size:14px;display:block}
+.step small{font-size:12px;color:var(--ink-soft)}
+.step.off b, .step.off small{color:var(--ink-soft)}
+
+.badge-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:0 28px}
+.opt{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line);padding:12px 0}
+.opt .emoji{font-size:20px;width:38px;height:38px;display:grid;place-items:center;
+  background:var(--cream-2);border-radius:11px;flex:0 0 38px}
+.opt b{font-size:14.5px;display:block}
+.opt small{font-size:12.5px;color:var(--ink-soft)}
 .opt.locked{opacity:.5}
+
+/* ---- Liste de réglages et tableau de croisement : un seul panneau, pas une carte par ligne ---- */
+.dl{background:#fff;border-radius:16px;box-shadow:var(--shadow);border:1px solid var(--line);padding:4px 24px;margin-top:16px}
+.dl-row{display:grid;grid-template-columns:190px 1fr;gap:22px;padding:18px 0;border-bottom:1px solid var(--line)}
+.dl-row:last-child{border-bottom:none}
+.dl-k{font-family:'Fraunces',serif;font-weight:600;font-size:17px;line-height:1.25}
+.dl-v{font-size:14.5px;line-height:1.55}
+.dl-v small{display:block;color:var(--ink-soft);font-size:12.5px;margin-top:5px}
+.dl-v .chips{margin-top:8px}
+@media (max-width:700px){.dl-row{grid-template-columns:1fr;gap:6px}}
+
+.xt{background:#fff;border-radius:16px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;margin-top:18px}
+.xt-row{display:grid;gap:20px;padding:16px 24px;border-bottom:1px solid var(--line);align-items:start;
+  grid-template-columns:1.3fr 1fr 1fr}
+.xt-row.n3{grid-template-columns:1.3fr 1fr 1fr 1fr}
+.xt-row:last-child{border-bottom:none}
+.xt-row.head{font-size:11.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-soft);
+  font-weight:700;background:var(--cream);padding-top:12px;padding-bottom:12px}
+.xt-row.gap{box-shadow:inset 4px 0 0 var(--amber);background:#FFFBF1}
+.xt-row.tens > div:nth-child(3){grid-column:3 / -1}
+.xt-q{font-weight:600;font-size:15px}
+.xt-q small{display:block;font-weight:600;color:var(--amber-ink);font-size:12.5px;margin-top:3px}
+.xt .who{display:none;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
+  color:var(--ink-soft);margin-bottom:2px}
+.xt .who.show{display:block}
+@media (max-width:760px){
+  .xt-row, .xt-row.n3{grid-template-columns:1fr;gap:8px}
+  .xt-row.head{display:none} .xt .who{display:block}
+  .xt-row.tens > div:nth-child(3){grid-column:auto}
+}
 
 .onb-prog{height:6px;background:var(--cream-2);border-radius:10px;overflow:hidden;margin:18px 0 4px}
 .onb-prog i{display:block;height:100%;background:var(--teal);border-radius:10px;transition:width .4s ease}
-.card.teal .sub{color:rgba(255,255,255,.88)}
-.card.coral .sub{color:rgba(255,255,255,.92)}
-.st-key-card_todo .stButton{margin-top:0}
-.stApp .st-key-card_todo [data-testid="stBaseButton-secondary"]{padding:.25rem .5rem;min-height:2.4rem;height:2.4rem;border-radius:12px;font-size:14px}
-.st-key-card_todo [data-testid="stHorizontalBlock"]{gap:.6rem}
-.card.coral .eyebrow{color:#fff;margin-top:0;opacity:.85}
-.tag.app{background:var(--cream-2);color:var(--ink-soft)}
-.cmp{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
-.cmp .side{flex:1 1 180px;background:var(--cream);border-radius:16px;padding:12px 14px;font-size:14px;line-height:1.4}
-.cmp .side .tag{display:inline-block;margin-bottom:6px}
-.stApp button:disabled{opacity:.4;box-shadow:none;cursor:not-allowed}
-.stApp .stButton{margin-top:10px}
 
-/* ---- Widgets Streamlit ---- */
-.stApp [data-testid="stWidgetLabel"] p{font-size:13px;font-weight:600;color:var(--ink)}
-.stApp [data-testid="stElementContainer"]:has(.stButton){width:100% !important}
-.stApp .stButton{width:100%;margin-top:8px}
+/* ---- Session : étapes numérotées, durée héros, résumé qui porte le bouton ---- */
+.step-h{display:flex;align-items:center;gap:10px;font-family:'Fraunces',serif;font-weight:600;font-size:18px;margin:24px 0 10px}
+.step-h:first-child{margin-top:2px}
+.step-h .n{width:26px;height:26px;border-radius:50%;background:var(--sage-soft);color:var(--teal-deep);
+  font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;display:grid;place-items:center;flex:0 0 26px}
+.dur-hero{display:flex;align-items:baseline;gap:10px;margin:0 0 2px}
+.dur-hero b{font-family:'Fraunces',serif;font-size:76px;line-height:1;letter-spacing:-2px;font-weight:600}
+.dur-hero span{font-size:22px;color:var(--ink-soft);font-weight:500}
+.dur-sub{font-size:14px;color:var(--ink-soft);margin:0 0 12px}
+.st-key-summary{position:sticky;top:1rem;background:linear-gradient(150deg,var(--teal) 0%,var(--teal-deep) 120%);
+  color:#fff;border-radius:16px;padding:26px;margin-top:16px;box-shadow:var(--shadow);gap:.7rem}
+.summary .eyebrow{color:#d9d8ff;margin:0 0 8px}
+.summary .big-dur{font-family:'Fraunces',serif;font-size:64px;line-height:1;font-weight:600;letter-spacing:-2px}
+.summary .big-dur small{font-size:20px;font-weight:500;letter-spacing:0;margin-left:6px;opacity:.85}
+.summary .line{font-size:16px;margin-top:12px;line-height:1.4;font-weight:500}
+.summary .line small{display:block;opacity:.8;font-size:13px;font-weight:400;margin-top:2px}
+.summary .line.missing{color:#FFE2A8}
+.stApp .st-key-summary [data-testid="stBaseButton-primary"]{width:100%;height:64px;background:#fff;color:var(--teal-deep);
+  font-size:18px;font-weight:700;border-radius:14px;box-shadow:0 16px 28px -16px rgba(0,0,0,.65)}
+.stApp .st-key-summary [data-testid="stBaseButton-primary"]:hover{background:#F1F3FF}
+.stApp .st-key-summary [data-testid="stBaseButton-primary"] p{color:var(--teal-deep);font-weight:700}
+.st-key-summary [data-testid="stElementContainer"]:has(.stButton){width:100% !important}
+.st-key-summary .stButton{width:100%;margin-top:22px}
+.st-key-summary [data-testid="stCaptionContainer"]{color:rgba(255,255,255,.85)}
+.st-key-summary button:disabled{opacity:.55}
+
+/* ---- Co-décision : « Nous deux », à faire ensemble, signature à deux ---- */
+.duo-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:16px 0 0;font-size:14.5px;color:var(--ink-soft)}
+.duo-line b{color:var(--ink);font-weight:600}
+.duo-line .sep{color:#B5BBCB}
+.duo{display:inline-flex}
+.duo .av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--sage-soft);
+  border:2px solid #fff;font-size:18px}
+.duo .av.t{margin-left:-10px;background:var(--amber-soft);font-weight:700;font-size:14px;color:var(--amber-ink)}
+.together{background:var(--amber-soft);border-left:3px solid var(--amber);border-radius:0 12px 12px 0;
+  padding:12px 16px;margin:18px 0 0;font-size:14.5px;line-height:1.5}
+.together .go{color:var(--ink-soft)}
+.sigs{display:flex;gap:28px;margin:14px 0 16px;flex-wrap:wrap}
+.sig{min-width:150px;border-bottom:2px dashed #C6CCDB;padding-bottom:5px}
+.sig b{display:block;font-size:13.5px;color:var(--ink-soft);font-weight:600}
+.sig small{font-size:12px;color:var(--ink-soft)}
+.sig.on{border-bottom:2px solid var(--teal)}
+.sig.on b{font-family:'Fraunces',serif;font-size:17px;color:var(--ink)}
+.sig.on small{color:var(--teal);font-weight:600}
+.turn{font-size:12.5px;font-weight:700;color:var(--amber-ink)}
+.signed{font-size:13px;color:var(--teal);font-weight:600}
+.accords-h{font-family:'Fraunces',serif;font-weight:600;font-size:22px;margin:30px 0 4px}
+
+/* ---- Progression : où j'en suis, le chemin d'autonomie, le prochain palier ---- */
+.where{display:flex;align-items:center;gap:22px;margin-top:22px;flex-wrap:wrap}
+.where .avatar{width:88px;height:88px;font-size:46px;border-radius:26px}
+.where .txt{flex:1;min-width:240px}
+.where .txt .h-title{font-size:32px}
+.where .xp{text-align:right}
+.where .xp b{font-family:'Fraunces',serif;font-size:36px;font-weight:600;line-height:1;display:block}
+.where .xp span{font-size:13px;color:var(--ink-soft)}
+.path{display:flex;align-items:flex-start;margin:26px 0 6px;padding:4px 6px 0}
+.path .stop{flex:0 0 170px;text-align:center}
+.path .slot{height:46px;display:grid;place-items:end center;font-size:34px;line-height:1}
+.path .stop i{display:block;width:22px;height:22px;border-radius:50%;margin:8px auto 12px;background:var(--cream-2);border:3px solid var(--cream-2)}
+.path .stop.done i{background:var(--teal);border-color:var(--teal)}
+.path .stop.here i{width:32px;height:32px;margin:2px auto 8px;background:#fff;border:7px solid var(--teal);box-shadow:0 0 0 6px var(--sage-soft)}
+.path .stop.next i{background:#fff;border-color:var(--teal)}
+.path .stop b{display:block;font-family:'Fraunces',serif;font-size:17px}
+.path .stop span{display:block;font-size:14px}
+.path .stop small{display:block;font-size:12.5px;color:var(--ink-soft);margin-top:2px}
+.path .stop.later b, .path .stop.later span{color:var(--ink-soft)}
+.path .link{flex:1;height:5px;background:var(--cream-2);border-radius:5px;margin-top:66px;position:relative;overflow:hidden}
+.path .link em{position:absolute;left:0;top:0;bottom:0;background:var(--teal);border-radius:5px}
+.path .link em.v{display:none}
+@media (max-width:700px){
+  .path{flex-direction:column;align-items:flex-start;padding-left:8px}
+  .path .stop{flex:none;width:100%;display:grid;grid-template-columns:44px 1fr;column-gap:14px;text-align:left;align-items:center}
+  .path .slot{display:none}
+  .path .stop i{grid-row:1 / span 3;margin:0 auto}
+  .path .stop.here i{margin:0 auto}
+  .path .link{flex:none;width:5px;height:30px;margin:0 0 0 19px}
+  .path .link em.h{display:none} .path .link em.v{display:block;left:0;right:0;top:0;bottom:auto;width:100%}
+}
+.nextp .eyebrow{margin-top:0}
+.nextp .h-title{font-size:32px;margin:2px 0 4px}
+.nextp .lbl{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-soft);margin:16px 0 4px}
+.gauge-words{display:flex;justify-content:space-between;font-size:13px;color:var(--ink-soft);margin-top:6px;font-weight:500}
+.gauge-words .on{color:var(--teal);font-weight:700}
+.opt.todo .emoji{background:none;border:1.5px dashed #B5BBCB;color:#B5BBCB}
+.opt .prog{font-size:12.5px;color:var(--teal);font-weight:600}
+
+/* ---- Boutons : une action principale pleine, le reste en retrait ---- */
+.stApp button:disabled{opacity:.4;box-shadow:none;cursor:not-allowed}
+.stApp .stButton{margin-top:6px}
+.stApp [data-testid="stWidgetLabel"] p{font-size:13.5px;font-weight:600;color:var(--ink)}
 .stApp [data-testid="stBaseButton-primary"], .stApp [data-testid="stBaseButton-primaryFormSubmit"]{
-  width:100%;border:none;border-radius:18px;padding:.85rem 1rem;font-weight:600;font-size:15px;
-  background:var(--teal);color:#fff;box-shadow:0 14px 26px -14px var(--teal)}
+  border:none;border-radius:12px;padding:.75rem 1.6rem;font-weight:600;font-size:15.5px;
+  background:var(--teal);color:#fff;box-shadow:0 10px 20px -14px var(--teal)}
 .stApp [data-testid="stBaseButton-secondary"], .stApp [data-testid="stBaseButton-secondaryFormSubmit"]{
-  width:100%;border-radius:18px;padding:.8rem 1rem;font-weight:600;font-size:15px;
-  background:transparent;color:var(--teal);border:1.5px solid var(--teal)}
-.stApp [data-testid="stBaseButton-secondary"]:hover{background:var(--sage-soft);color:var(--teal-deep)}
-.stApp [data-testid="stTextInputRootElement"]{border-radius:14px;background:#fff;border:1.5px solid var(--line);
+  border-radius:12px;padding:.65rem 1.2rem;font-weight:500;font-size:14.5px;
+  background:transparent;color:var(--ink);border:1px solid rgba(34,38,64,.22)}
+.stApp [data-testid="stBaseButton-secondary"]:hover{background:#fff;border-color:var(--teal);color:var(--teal)}
+.st-key-card_start .stButton, .st-key-card_newrule .stButton, .st-key-card_newrule [data-testid="stFormSubmitButton"],
+.st-key-card_start .stButton > button, .st-key-card_newrule [data-testid="stFormSubmitButton"] > button{width:100%}
+.st-key-card_start [data-testid="stElementContainer"]:has(.stButton),
+.st-key-card_onb [data-testid="stHorizontalBlock"] > div:last-child [data-testid="stElementContainer"]:has(.stButton),
+.st-key-card_newrule [data-testid="stElementContainer"]:has([data-testid="stFormSubmitButton"]){width:100% !important}
+.st-key-card_onb [data-testid="stHorizontalBlock"] > div:last-child .stButton,
+.st-key-card_onb [data-testid="stHorizontalBlock"] > div:last-child .stButton > button{width:100%}
+.st-key-card_todo .stButton{margin-top:0}
+.stApp .st-key-card_todo [data-testid="stBaseButton-secondary"]{padding:.2rem .6rem;min-height:2.3rem;height:2.3rem;
+  border-radius:10px;font-size:14px;border-color:transparent;color:var(--ink-soft)}
+.stApp .st-key-card_todo [data-testid="stBaseButton-secondary"]:hover{background:var(--cream-2);color:var(--ink)}
+.st-key-card_todo [data-testid="stHorizontalBlock"]{gap:.6rem}
+div[class*="st-key-row_rule_"]{border-bottom:1px solid var(--line);padding:20px 0;gap:.6rem}
+.stApp [data-testid="stTextInputRootElement"]{border-radius:10px;background:#fff;border:1px solid rgba(34,38,64,.18);
   box-shadow:none}
 .stApp [data-testid="stTextInputRootElement"] input{border:none;background:transparent}
 [data-testid="stForm"]{border:none;padding:0}
 
-/* choix en pastilles (st.pills) = cartes "pick" du prototype */
+/* choix de réponse : tuiles rectangulaires, plus de pilules */
 .stApp button[data-variant="pills"], .stApp button[data-variant="pillsActive"]{
-  border-radius:16px;padding:.55rem .9rem;background:#fff;border:1.5px solid var(--line);
-  color:var(--ink);font-weight:500;transition:.18s}
-.stApp button[data-variant="pills"]:hover{border-color:var(--sage);transform:translateY(-1px)}
-.stApp button[aria-pressed="true"]{border-color:var(--teal);background:#f0eefb;
-  box-shadow:0 0 0 3px var(--sage-soft);color:var(--teal-deep)}
+  border-radius:10px;padding:.6rem 1rem;background:#fff;border:1px solid rgba(34,38,64,.18);
+  color:var(--ink);font-weight:500;transition:.15s}
+.stApp button[data-variant="pills"]:hover{border-color:var(--teal)}
+.stApp button[aria-pressed="true"]{border:1.5px solid var(--teal);background:var(--sage-soft);
+  box-shadow:none;color:var(--teal-deep);font-weight:600}
 
-/* curseur de durée : piste dégradée comme dans le prototype */
+/* curseur de durée : de bleu clair à l'indigo de la marque */
 .stApp [data-testid="stSlider"] div[style*="touch-action"] > div:first-child{
-  height:8px;border-radius:8px;background:linear-gradient(90deg,var(--sky),var(--sage),var(--coral)) !important}
+  height:8px;border-radius:8px;background:linear-gradient(90deg,var(--sky),var(--sage),var(--teal)) !important}
 </style>
 """
 
@@ -723,7 +929,18 @@ def html(content):
 
 def heading(eyebrow, title, sub=""):
     sub_html = f'<p class="sub">{esc(sub)}</p>' if sub else ""
-    html(f'<div class="eyebrow">{esc(eyebrow)}</div><div class="h-title">{esc(title)}</div>{sub_html}')
+    eyebrow_html = f'<div class="eyebrow">{esc(eyebrow)}</div>' if eyebrow else ""
+    html(f'{eyebrow_html}<div class="page-title">{esc(title)}</div>{sub_html}')
+
+
+def narrow():
+    """Écrans de parcours (questionnaire, attente) : colonne de lecture plus resserrée que l'application."""
+    html("<style>.block-container{max-width:880px}</style>")
+
+
+def sec(title, body):
+    """Section sans boîte : un filet, un titre, du contenu."""
+    return f'<div class="sec"><div class="sec-h">{esc(title)}</div>{body}</div>'
 
 
 def pills_html(items, css=""):
@@ -753,6 +970,7 @@ def render_onboarding(profile):
     offset = len(steps) - n_questions
     label = "Avant de commencer" if q["id"] in preliminaries else f"Question {i + 1 - offset} sur {n_questions}"
 
+    narrow()
     html(f'<div class="onb-prog"><i style="width:{100 * (i + 1) / len(steps):.0f}%"></i></div>')
     if i == 0:
         if profile == "teen":
@@ -761,7 +979,7 @@ def render_onboarding(profile):
         else:
             intro = ("8 questions, environ 5 minutes. Il n'y a pas de bonne ou de mauvaise réponse : "
                      "vos réponses servent de point de départ pour en discuter avec votre ado, jamais de verdict.")
-        html(f'<div class="card"><p class="sub" style="margin:0">{esc(intro)}</p></div>')
+        html(f'<p class="sub" style="margin:14px 0 0">{esc(intro)}</p>')
     heading(label, q["text"], q["hint"])
 
     codes = [c for c, _ in q["options"]]
@@ -776,7 +994,7 @@ def render_onboarding(profile):
             answer = st.pills(q["text"], codes, selection_mode="single",
                               default=previous if previous in codes else None, **common)
         last = i == len(steps) - 1
-        c1, c2 = st.columns(2)
+        c1, c2 = st.columns([1, 2])
         if c1.button("Retour", disabled=i == 0, key=f"back_{profile}"):
             st.session_state[step_key] = i - 1
             st.rerun()
@@ -821,6 +1039,7 @@ def watch_others():
 
 def render_waiting(profile):
     """Page d'attente : ce compte a terminé, mais pas encore tous les autres."""
+    narrow()
     pending = [p for p in ["teen"] + tutor_profiles() if not is_complete(p)]
     if profile == "teen":
         title, text = "C'est enregistré", "On attend la réponse de tes parents."
@@ -852,7 +1071,7 @@ CROSS_TITLES = {
 }
 
 
-def render_crossing(profile):
+def render_crossing(profile, review=False):
     """Page post-questionnaires : réponses côte à côte, écarts signalés comme sujets de discussion."""
     profiles = ["teen"] + tutor_profiles()
     answers = {p: load_answers(p) for p in profiles}
@@ -867,25 +1086,23 @@ def render_crossing(profile):
     heading("Vos réponses", "Côte à côte",
             "Un point de départ pour en discuter ensemble, jamais un verdict.")
     if topics:
-        items = "".join(f'<span class="pill coral">{esc(x)}</span>' for x in topics)
-        html(f'<div class="card"><div class="eyebrow" style="margin-top:0">À aborder ensemble</div>{items}</div>')
+        html('<div class="note warn"><div class="eyebrow">À aborder ensemble</div>'
+             f'<div class="topics">{" · ".join(esc(x) for x in topics)}</div></div>')
     else:
-        html('<div class="card"><div class="eyebrow" style="margin-top:0">À aborder ensemble</div>'
+        html('<div class="note"><div class="eyebrow">À aborder ensemble</div>'
              '<p class="sub" style="margin:0">Vos réponses se rejoignent sur toutes les questions.</p></div>')
 
+    n = len(profiles)
+    head = f'<div class="xt-row head n{n}"><div></div>' + "".join(f"<div>{esc(side_name(p))}</div>" for p in profiles) + "</div>"
+    rows = ""
     for qid in order:
-        sides = "".join(
-            f'<div class="side"><span class="tag {"ado" if p == "teen" else "par"}">{esc(side_name(p))}</span>'
-            f'<div>{esc(" · ".join(labels_for(p, qid, answers[p])))}</div></div>'
+        cells = "".join(
+            f'<div><span class="who">{esc(side_name(p))}</span>{esc(" · ".join(labels_for(p, qid, answers[p])))}</div>'
             for p in profiles
         )
-        state = '<span class="pill coral">À aborder ensemble</span>' if gaps[qid] \
-            else '<span class="pill">D\'accord</span>'
-        html(
-            f'<div class="card"><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'
-            f'<div class="h-title" style="font-size:18px">{esc(CROSS_TITLES[qid])}</div>{state}</div>'
-            f'<div class="cmp">{sides}</div></div>'
-        )
+        flag = "<small>À aborder ensemble</small>" if gaps[qid] else ""
+        rows += (f'<div class="xt-row n{n}{" gap" if gaps[qid] else ""}">'
+                 f'<div class="xt-q">{esc(CROSS_TITLES[qid])}{flag}</div>{cells}</div>')
 
     # Tensions (ado) et préoccupation (tuteurs) : deux questions différentes, sans attribution nominative.
     tutor_concerns = []
@@ -893,14 +1110,18 @@ def render_crossing(profile):
         for label in labels_for(p, "q8", answers[p]):
             if label not in tutor_concerns:
                 tutor_concerns.append(label)
-    html(
-        '<div class="card"><div class="h-title" style="font-size:18px">Tensions et préoccupation</div><div class="cmp">'
-        f'<div class="side"><span class="tag ado">Ado · tensions à la maison</span>'
-        f'<div>{esc(" · ".join(labels_for("teen", "q8", answers["teen"])))}</div></div>'
-        f'<div class="side"><span class="tag par">Tuteurs · principale préoccupation</span>'
-        f'<div>{esc(" · ".join(tutor_concerns))}</div></div></div></div>'
+    rows += (
+        f'<div class="xt-row n{n} tens"><div class="xt-q">Tensions et préoccupation</div>'
+        f'<div><span class="who show">Ado · tensions à la maison</span>'
+        f'{esc(" · ".join(labels_for("teen", "q8", answers["teen"])))}</div>'
+        f'<div><span class="who show">Tuteurs · principale préoccupation</span>{esc(" · ".join(tutor_concerns))}</div></div>'
     )
-    if st.button("Continuer vers la co-décision", type="primary", key=f"cross_continue_{profile}"):
+    html(f'<div class="xt">{head}{rows}</div>')
+    if review:
+        if st.button("Fermer", type="primary", key=f"cross_close_{profile}"):
+            st.session_state.pop("review_crossing", None)
+            st.rerun()
+    elif st.button("Continuer vers la co-décision", type="primary", key=f"cross_continue_{profile}"):
         set_setting(f"crossing_seen_{profile}", "1")
         st.rerun()
 
@@ -939,6 +1160,9 @@ if not all_done():
 if not get_setting(f"crossing_seen_{role}", ""):
     render_crossing(role)
     st.stop()
+if st.session_state.get("review_crossing"):      # « Revoir nos réponses », depuis l'onglet Règles
+    render_crossing(role, review=True)
+    st.stop()
 
 cfg = compute_config()
 apply_initial_config(cfg)
@@ -948,6 +1172,36 @@ if "_toast" in st.session_state:
 instant_reward = cfg["reward"] in ("immediat", "mixte")   # Q4 : récompense sur le moment
 level_reward = cfg["reward"] in ("paliers", "mixte")      # Q4 : étapes visibles
 
+def plural(n, one, many):
+    return f"{n} {one if n == 1 else many}"
+
+
+def render_together():
+    """Le slogan devient un état permanent : qui décide avec qui, et où en sont les accords."""
+    rules = query("SELECT * FROM rules")
+    active = sum(rule_is_active(r) for r in rules)
+    open_n = len(rules) - active
+    palier = palier_current()
+    avatar = get_setting("avatar", AVATARS[0])
+    others = "ses tuteurs" if tutor_accounts() == 2 else "son tuteur"
+    open_txt = plural(open_n, "à décider", "à décider") if open_n else "rien en attente"
+    html(
+        f'<div class="duo-line"><span class="duo"><span class="av">{esc(avatar)}</span><span class="av t">T</span></span>'
+        f'<b>{esc(nickname)} et {others}</b><span class="sep">·</span>'
+        f'{plural(active, "accord actif", "accords actifs")}<span class="sep">·</span>{open_txt}<span class="sep">·</span>'
+        f'{"Palier " + str(palier) if palier else "palier à choisir ensemble"}</div>'
+    )
+
+
+def sigs_html(r):
+    """La double signature : deux lignes, vides tant que l'autre n'a pas répondu."""
+    def sig(name, ok):
+        return (f'<div class="sig{" on" if ok else ""}"><b>{esc(name)}</b>'
+                f'<small>{"✓ signé" if ok else "en attente"}</small></div>')
+    return f'<div class="sigs">{sig(nickname, r["teen_ok"])}{sig("Tuteur", r["parent_ok"])}</div>'
+
+
+render_together()
 tab_session, tab_board, tab_rules, tab_progress, tab_settings = st.tabs(
     ["Session", "Tableau", "Règles", "Progression", "Réglages"]
 )
@@ -1015,9 +1269,9 @@ def render_highlight(cfg):
         pending = sum(not rule_is_active(r) for r in query("SELECT * FROM rules"))
         extra = f"{pending} règle(s) en discussion" if pending else "Aucune règle en attente."
     html(
-        '<div class="card"><div class="eyebrow" style="margin-top:0">À la une</div>'
+        '<div class="note"><div class="eyebrow">À la une</div>'
         f'<div class="h-title" style="font-size:19px">{esc(title)}</div><p class="sub">{esc(desc)}</p>'
-        f'<p class="sub" style="color:var(--teal);font-weight:600">{esc(extra)}</p></div>'
+        f'<p class="sub" style="color:var(--ink);font-weight:600">{esc(extra)}</p></div>'
     )
 
 
@@ -1054,7 +1308,7 @@ def live_session(shown_status, alert, pauses, teen_view):
         threshold = 300 if secs <= 300 else (600 if secs <= 600 else None)
         if threshold and alert != "rien":   # Q5 : préavis à 10 et 5 minutes, visuel ou sonore
             html(
-                '<div class="card coral"><div class="eyebrow">Préavis</div>'
+                '<div class="note warn"><div class="eyebrow">Préavis</div>'
                 f'<div class="h-title" style="font-size:20px">Le créneau démarre dans {clock(timedelta(seconds=secs))}</div>'
                 f'<p class="sub">Objectif : {esc(s["goal"])}</p></div>'
             )
@@ -1085,7 +1339,7 @@ def live_session(shown_status, alert, pauses, teen_view):
     pause_end = st.session_state.get("pause_end")
     if pause_end and now() < pause_end:
         html(
-            '<div class="card coral"><div class="eyebrow">Pause</div>'
+            '<div class="note warn"><div class="eyebrow">Pause</div>'
             f'<div class="h-title" style="font-size:20px">{clock(pause_end - now())}</div>'
             '<p class="sub">Le téléphone reste bloqué. Tu peux te lever, boire un verre d\'eau…</p></div>'
         )
@@ -1094,7 +1348,7 @@ def live_session(shown_status, alert, pauses, teen_view):
     seen_key = f"pause_seen_{s['id']}_{idx}"
     if idx >= 1 and elapsed - idx * interval * 60 < 120 and remaining.total_seconds() > brk * 60 \
             and not st.session_state.get(seen_key):
-        html('<div class="card"><div class="h-title" style="font-size:19px">Pause courte proposée</div>'
+        html('<div class="note warn"><div class="h-title" style="font-size:19px">Pause courte proposée</div>'
              f'<p class="sub">{brk} minutes, si tu en as envie. « Je continue » écarte seulement cette suggestion.</p></div>')
         c1, c2 = st.columns(2)
         if c1.button(f"Prendre {brk} min", key=f"pause_take_{s['id']}_{idx}", type="primary"):
@@ -1106,78 +1360,149 @@ def live_session(shown_status, alert, pauses, teen_view):
             st.rerun()
 
 
-# --- Onglet Session ---
+# --- Onglet Session : un seul objectif, lancer la session ---
+QUICK_DURATIONS = {"15 min": 15, "30 min": 30, "45 min": 45, "60 min": 60, "90 min": 90}
+
+
+def on_quick_duration():
+    chosen = st.session_state.get("dur_quick")
+    if chosen:
+        st.session_state["session_duration"] = QUICK_DURATIONS[chosen]
+
+
+def on_slider_duration():
+    value = st.session_state["session_duration"]
+    st.session_state["dur_quick"] = next((k for k, v in QUICK_DURATIONS.items() if v == value), None)
+
+
+def step_head(n, text):
+    html(f'<div class="step-h"><span class="n">{n}</span>{esc(text)}</div>')
+
+
+def join_fr(items):
+    items = list(items)
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " et " + items[-1]
+
+
 with tab_session:
     s = active_session() or scheduled_session()
-    palier_pending = (not get_setting("palier", "")) or bool(get_setting("palier_target", ""))
-    if palier_pending and not palier_validated_by("teen" if is_teen else "tutor"):
-        html('<div class="card coral"><div class="eyebrow">À valider ensemble</div>'
-             '<div class="h-title" style="font-size:19px">Un palier est proposé</div>'
-             '<p class="sub">Il est dans l\'onglet Réglages, à valider ensemble.</p></div>')
+    me_key = "teen" if is_teen else "tutor"
     teen_todos = is_teen and bool(get_setting("todolist_created", ""))
     todos_first = teen_todos and cfg["module"] == "scolaire"
 
-    if s:
-        heading(
-            f"Salut {nickname} 👋" if is_teen else "Bonjour 👋",
-            ("Tu tiens ton plan" if s["status"] == "active" else "Ton prochain créneau") if is_teen
-            else ("Une session est en cours" if s["status"] == "active" else "Un créneau est programmé"),
-        )
-        live_session(s["status"], cfg["alert"], cfg["pauses"], is_teen)
-        if is_teen:
-            if s["status"] == "active":
-                if st.button("Arrêter maintenant"):
-                    stop_session(s["id"])
+    # Décisions communes qui attendent une réponse : une seule ligne, en tête de page
+    mine, _theirs, palier_mine, _palier_theirs = decisions_for(me_key)
+    waiting = [r["title"] for r in mine]
+    if palier_mine:
+        waiting.append(f"Palier {palier_target(cfg)} · {PALIER_NAMES[palier_target(cfg)]}")
+    if waiting:
+        verb = ("t'attend" if is_teen else "vous attend") if len(waiting) == 1 else ("t'attendent" if is_teen else "vous attendent")
+        html(f'<div class="together"><b>À faire ensemble</b> · {plural(len(waiting), "décision", "décisions")} {verb} : '
+             f'{esc(" · ".join(waiting))} <span class="go">→ onglets Règles et Réglages</span></div>')
+
+    main, side = st.columns([3, 2], gap="large")
+
+    with main:
+        if s:
+            heading(
+                f"Salut {nickname} 👋" if is_teen else "Bonjour 👋",
+                ("Tu tiens ton plan" if s["status"] == "active" else "Ton prochain créneau") if is_teen
+                else ("Une session est en cours" if s["status"] == "active" else "Un créneau est programmé"),
+            )
+            live_session(s["status"], cfg["alert"], cfg["pauses"], is_teen)
+            if is_teen:
+                if s["status"] == "active":
+                    if st.button("Arrêter maintenant"):
+                        stop_session(s["id"])
+                        st.rerun()
+                elif st.button("Annuler la programmation"):
+                    execute("DELETE FROM sessions WHERE id=?", (s["id"],))
                     st.rerun()
-            elif st.button("Annuler la programmation"):
-                execute("DELETE FROM sessions WHERE id=?", (s["id"],))
-                st.rerun()
-        else:
-            html('<p class="sub">Seul l\'adolescent peut activer ou arrêter une session.</p>')
-        if teen_todos:
-            render_todolist(instant_reward)
-    elif is_teen:
-        heading(f"Salut {nickname} 👋", "Commencer une session", "Tu choisis, tu décides de la durée.")
-        last = query("SELECT * FROM sessions WHERE status='completed' ORDER BY ended_at DESC LIMIT 1")
-        if instant_reward and last and now() - datetime.fromisoformat(last[0]["ended_at"]) < timedelta(minutes=30):
-            html(f'<div class="card coral"><div class="eyebrow">Bravo</div><div class="h-title" style="font-size:20px">'
-                 f'Session terminée : +{last[0]["xp"]} XP 🎉</div><p class="sub">{esc(last[0]["goal"])}</p></div>')
-        render_highlight(cfg)
-        if todos_first:
-            render_todolist(instant_reward)
-        with st.container(key="card_start"):
-            apps = st.pills("Applications à mettre en pause", APPS, selection_mode="multi",
-                            default=cfg["apps"], key="session_apps")
-            other = st.text_input("Autre application (facultatif)")
-            goal = st.pills("Objectif de la session", cfg["objectives"] + [GOAL_OTHER], key="session_goal")
-            if goal == GOAL_OTHER:
-                goal = st.text_input("Précisez l'objectif") or GOAL_OTHER
-            when = st.pills("Démarrage", list(START_CHOICES), default="Maintenant", key="session_when")
-            duration = st.slider("Durée", 15, 180, 45, step=5, format="%d min")
-            if cfg["pauses"]:
-                interval, brk = cfg["pauses"]
-                st.caption(f"Pause courte proposée toutes les {interval} min ({brk} min).")
             else:
-                st.caption("Pas de pause automatique.")
-            if st.button("Activer la pause", type="primary"):
-                chosen = list(apps or []) + ([other.strip()] if other.strip() else [])
-                if not chosen:
-                    st.warning("Sélectionnez au moins une application.")
-                elif not goal:
-                    st.warning("Choisissez un objectif.")
-                else:
-                    start_session(chosen, goal, duration, START_CHOICES[when or "Maintenant"])
+                html('<p class="sub">Seul l\'adolescent peut activer ou arrêter une session.</p>')
+            if todos_first:
+                render_todolist(instant_reward)
+        elif is_teen:
+            heading(f"Salut {nickname} 👋", "Commencer une session", "Tu choisis, tu décides de la durée.")
+            last = query("SELECT * FROM sessions WHERE status='completed' ORDER BY ended_at DESC LIMIT 1")
+            if instant_reward and last and now() - datetime.fromisoformat(last[0]["ended_at"]) < timedelta(minutes=30):
+                html(f'<div class="note warn"><div class="eyebrow">Bravo</div><div class="h-title" style="font-size:20px">'
+                     f'Session terminée : +{last[0]["xp"]} XP 🎉</div><p class="sub">{esc(last[0]["goal"])}</p></div>')
+            if todos_first:
+                render_todolist(instant_reward)
+            with st.container(key="card_start"):
+                step_head(1, "Quoi mettre en pause")
+                apps = st.pills("Applications à mettre en pause", APPS, selection_mode="multi",
+                                default=cfg["apps"], key="session_apps", label_visibility="collapsed")
+                with st.expander("+ Autre application"):
+                    other = st.text_input("Autre application (facultatif)", key="session_other")
+                step_head(2, "Pour quoi faire")
+                goal = st.pills("Objectif de la session", cfg["objectives"] + [GOAL_OTHER], key="session_goal",
+                                label_visibility="collapsed")
+                if goal == GOAL_OTHER:
+                    goal = st.text_input("Précisez l'objectif") or GOAL_OTHER
+                step_head(3, "Combien de temps, et quand")
+                hero = st.empty()
+                if "session_duration" not in st.session_state:
+                    st.session_state["session_duration"] = 45
+                    st.session_state["dur_quick"] = "45 min"
+                st.pills("Durées rapides", list(QUICK_DURATIONS), selection_mode="single", key="dur_quick",
+                         on_change=on_quick_duration, label_visibility="collapsed")
+                st.slider("Durée", 15, 180, step=5, key="session_duration", on_change=on_slider_duration,
+                          format="%d min", label_visibility="collapsed")
+                duration = st.session_state["session_duration"]
+                when = st.pills("Démarrage", ["Maintenant", "Plus tard"], default="Maintenant", key="session_when",
+                                label_visibility="collapsed")
+                delay = 0
+                if when == "Plus tard":
+                    later = st.pills("Dans combien de temps ?", [k for k in START_CHOICES if k != "Maintenant"],
+                                     default="Dans 15 min", key="session_later", label_visibility="collapsed")
+                    delay = START_CHOICES[later or "Dans 15 min"]
+                start_dt = now() + timedelta(minutes=delay)
+                end_dt = start_dt + timedelta(minutes=duration)
+                pause_txt = (f"Pause de {cfg['pauses'][1]} min toutes les {cfg['pauses'][0]} min"
+                             if cfg["pauses"] else "Pas de pause automatique")
+                hero.markdown(
+                    f'<div class="dur-hero"><b>{duration}</b><span>min</span></div>'
+                    f'<p class="dur-sub">Jusqu\'à {end_dt:%H:%M} · {pause_txt}</p>', unsafe_allow_html=True)
+            if teen_todos and not todos_first:
+                render_todolist(instant_reward)
+            render_highlight(cfg)
+        else:
+            heading("Bonjour 👋", "Comment se passe la semaine ?")
+            html(
+                '<div class="note"><div class="h-title" style="font-size:20px">🔒 Aucune session en cours</div>'
+                '<p class="sub">Seul l\'adolescent peut activer une pause : c\'est un choix volontaire, '
+                "jamais une surprise. Retrouvez l'historique dans l'onglet Tableau.</p></div>"
+            )
+
+    with side:
+        if s:
+            if teen_todos and not todos_first:
+                render_todolist(instant_reward)
+        elif is_teen:
+            # Le résumé reste sous les yeux et porte le seul bouton qui compte
+            apps_all = list(apps or []) + ([other.strip()] if other.strip() else [])
+            ready = bool(apps_all) and bool(goal)
+            apps_line = (f'<div class="line">Je mets en pause {esc(join_fr(apps_all))}</div>' if apps_all
+                         else '<div class="line missing">Choisis au moins une application</div>')
+            goal_line = (f'<div class="line">Objectif : {esc(goal)}</div>' if goal
+                         else '<div class="line missing">Choisis un objectif</div>')
+            when_line = "Démarre maintenant" if delay == 0 else f"Démarre à {start_dt:%H:%M}"
+            with st.container(key="summary"):
+                html(
+                    f'<div class="summary"><div class="eyebrow">Ma session</div>'
+                    f'<div class="big-dur">{duration}<small>min</small></div>{apps_line}{goal_line}'
+                    f'<div class="line">{when_line} · fin à {end_dt:%H:%M}<small>{esc(pause_txt)}</small></div></div>'
+                )
+                label = f"Lancer ma session de {duration} min" if delay == 0 else f"Programmer pour {start_dt:%H:%M}"
+                if st.button(label, type="primary", disabled=not ready, key="launch"):
+                    start_session(apps_all, goal, duration, delay)
                     st.rerun()
-        if teen_todos and not todos_first:
-            render_todolist(instant_reward)
-    else:
-        heading("Bonjour 👋", "Comment se passe la semaine ?")
-        render_highlight(cfg)
-        html(
-            '<div class="card"><div class="h-title" style="font-size:20px">🔒 Aucune session en cours</div>'
-            '<p class="sub">Seul l\'adolescent peut activer une pause : c\'est un choix volontaire, '
-            "jamais une surprise. Retrouvez l'historique dans l'onglet Tableau.</p></div>"
-        )
+                st.caption("Tu peux l'arrêter à tout moment." if ready
+                           else "Choisis une application et un objectif pour continuer.")
+        else:
+            render_highlight(cfg)
 
 # --- Onglet Tableau partagé (niveau de détail selon la Q8 de l'ado) ---
 with tab_board:
@@ -1185,25 +1510,26 @@ with tab_board:
             "Identique pour l'adolescent et les tuteurs : un support de discussion, ni surveillance ni sanction.")
     sessions = query("SELECT * FROM sessions WHERE status!='scheduled' ORDER BY start DESC")
     level = cfg["stats"]
+    left_blocks, right_blocks = [], []
     if not sessions:
-        html('<div class="card"><p class="sub" style="margin:0">Aucune session pour l\'instant.</p></div>')
+        left_blocks.append('<div class="note"><p class="sub" style="margin:0">Aucune session pour l\'instant.</p></div>')
     else:
         n_done = sum(x["status"] == "completed" for x in sessions)
         n_stop = sum(x["status"] == "stopped" for x in sessions)
         if level in ("detail", "synthese"):
             rate = round(100 * n_done / (n_done + n_stop)) if (n_done + n_stop) else 0
             circ = 2 * 3.14159 * 52
-            html(
-                '<div class="card"><div class="eyebrow" style="margin-top:0">Engagements tenus</div>'
+            left_blocks.append(
+                '<div class="card"><div class="eyebrow" style="margin-top:0">Engagements tenus</div><div class="kpi">'
                 '<div class="ring"><svg width="130" height="130" viewBox="0 0 130 130">'
-                '<circle cx="65" cy="65" r="52" fill="none" stroke="#DFE3F4" stroke-width="12"/>'
+                '<circle cx="65" cy="65" r="52" fill="none" stroke="#E6EAF2" stroke-width="12"/>'
                 f'<circle cx="65" cy="65" r="52" fill="none" stroke="#4F4CC0" stroke-width="12" stroke-linecap="round" '
                 f'stroke-dasharray="{circ * rate / 100:.1f} {circ:.1f}"/></svg>'
-                f'<div class="center"><b>{rate}%</b><small>des sessions</small></div></div></div>'
-                '<div class="row">'
+                f'<div class="center"><b>{rate}%</b><small>des sessions</small></div></div>'
+                '<div class="stats">'
                 f'<div class="stat"><b>{len(sessions)}</b><span>Sessions</span></div>'
                 f'<div class="stat"><b>{n_done}</b><span>Menées à terme</span></div>'
-                f'<div class="stat"><b>{n_stop}</b><span>Arrêtées avant la fin</span></div></div>'
+                f'<div class="stat"><b>{n_stop}</b><span>Arrêtées avant la fin</span></div></div></div></div>'
             )
         if level == "detail":
             days = [(now() - timedelta(days=i)).date() for i in range(6, -1, -1)]
@@ -1215,15 +1541,13 @@ with tab_board:
             peak = max(minutes.values()) or 1
             cols = "".join(
                 f'<div class="col{" today" if d == days[-1] else ""}">'
-                + (f'<i style="height:{max(14, 78 * m / peak):.0f}px"></i>' if m else '<i class="empty"></i>')
+                + (f'<i style="height:{max(14, 100 * m / peak):.0f}px"></i>' if m else '<i class="empty"></i>')
                 + f"<span>{DAY_LETTERS[d.weekday()]}</span></div>"
                 for d, m in minutes.items()
             )
-            html(
-                '<div class="card"><div class="eyebrow" style="margin-top:0">7 derniers jours</div>'
+            left_blocks.append(sec("7 derniers jours",
                 f'<div class="bars">{cols}</div>'
-                '<p class="sub">Minutes de pause volontaire. Les jours sans barre sont des périodes libres.</p></div>'
-            )
+                '<p class="sub">Minutes de pause volontaire. Les jours sans barre sont des périodes libres.</p>'))
             items = ""
             for x in sessions[:8]:
                 dot = {"active": "active", "stopped": "stopped"}.get(x["status"], "")
@@ -1234,22 +1558,19 @@ with tab_board:
                     f'<small>{when_txt} · {held_minutes(x)} / {x["duration_min"]} min · {STATUS[x["status"]]}</small>'
                     f'<small>{esc(x["apps"])}</small></div></div>'
                 )
-            html(f'<div class="card"><div class="eyebrow" style="margin-top:0">Historique</div><div class="timeline">{items}</div></div>')
+            right_blocks.append(sec("Historique", f'<div class="timeline">{items}</div>'))
         if level == "minimal":
             # Tension forte : peu de chiffres, les accords pris et ce qui a fonctionné, une amorce à date fixe.
-            agreements = [r for r in query("SELECT * FROM rules") if rule_is_active(r)]
-            accords = "".join(f'<span class="pill">{esc(r["title"])}</span>' for r in agreements) or \
-                '<p class="sub" style="margin:0">Pas encore d\'accord pris : c\'est un bon sujet pour la prochaine discussion.</p>'
-            html(f'<div class="card"><div class="eyebrow" style="margin-top:0">Accords pris</div>{accords}</div>')
             goals = [x["goal"] for x in sessions if x["status"] == "completed"]
             worked = (f"{len(goals)} session(s) menée(s) à terme, surtout pour : {esc(max(set(goals), key=goals.count))}."
                       if goals else "Les premières réussites apparaîtront ici.")
-            html(f'<div class="card"><div class="eyebrow" style="margin-top:0">Ce qui a fonctionné</div><p class="sub" style="margin:0">{worked}</p></div>')
+            left_blocks.append(sec("Ce qui a fonctionné", f'<p class="sub" style="margin:0">{worked}</p>'))
             sunday = now().date() + timedelta(days=(6 - now().weekday()) % 7)
             starter = DISCUSSION_STARTERS[(sunday.toordinal() // 7) % len(DISCUSSION_STARTERS)]
-            html(f'<div class="card"><div class="eyebrow" style="margin-top:0">Rendez-vous de discussion</div>'
-                 f'<div class="h-title" style="font-size:19px">{esc(fr_date(sunday).capitalize())}</div>'
-                 f'<p class="sub">{esc(starter)}</p></div>')
+            right_blocks.append(
+                '<div class="note"><div class="eyebrow">Rendez-vous de discussion</div>'
+                f'<div class="h-title" style="font-size:24px">{esc(fr_date(sunday).capitalize())}</div>'
+                f'<p class="sub">{esc(starter)}</p></div>')
     # Reports « je finis ma partie » : visibles par tous, quel que soit le niveau de détail
     reports = query("SELECT * FROM postpones ORDER BY id DESC LIMIT 5")
     if reports:
@@ -1258,214 +1579,354 @@ with tab_board:
             f'<small>{r["at"].replace("T", " ")[5:16]} · report de {r["minutes"]} min</small></div></div>'
             for r in reports
         )
-        html('<div class="card"><div class="eyebrow" style="margin-top:0">Reports « je finis ma partie »</div>'
-             f'<div class="timeline">{rows}</div>'
-             f'<p class="sub">{quota_left()} report(s) restant(s) cette semaine.</p></div>')
+        block = sec("Reports « je finis ma partie »",
+                    f'<div class="timeline">{rows}</div><p class="sub">{quota_left()} report(s) restant(s) cette semaine.</p>')
+        right_blocks.append(block)
+    decided = ""
+    pal = palier_current()
+    if pal:
+        decided += (f'<div class="tl-item"><div class="tl-dot"></div><div><b>Palier {pal} · {esc(PALIER_NAMES[pal])}</b>'
+                    f'<small>Signé à deux{" · " + short_date(get_setting(f"palier_date_{pal}", "")) if get_setting(f"palier_date_{pal}", "") else ""}</small></div></div>')
+    for r in query("SELECT * FROM rules ORDER BY id DESC"):
+        if rule_is_active(r):
+            decided += (f'<div class="tl-item"><div class="tl-dot"></div><div><b>{esc(r["title"])}</b>'
+                        f'<small>Signé à deux{" · " + short_date(r["signed_at"]) if r["signed_at"] else ""}</small></div></div>')
+    right_blocks.insert(0, sec("Décidé ensemble", f'<div class="timeline">{decided}</div>' if decided else
+                               '<p class="sub" style="margin:0">Pas encore d\'accord : c\'est un bon sujet pour la prochaine discussion.</p>'))
+    col_l, col_r = st.columns([2, 3], gap="large")
+    with col_l:
+        for block in left_blocks:
+            html(block)
+    with col_r:
+        for block in right_blocks:
+            html(block)
 
-# --- Onglet Règles communes ---
+# --- Onglet Règles : ce qu'on décide ensemble, et ce qui attend une réponse ---
+def render_rule_row(r, my_col, kind):
+    """kind : 'mine' (à ma réponse), 'theirs' (en attente de l'autre) ou 'active' (signé à deux)."""
+    with st.container(key=f"row_rule_{r['id']}"):
+        if r["proposed_by"] == "teen":
+            tag = '<span class="tag ado">Proposée par l\'ado</span>'
+        elif r["proposed_by"] == "app":
+            tag = '<span class="tag app">Suggérée par l\'application</span>'
+        else:
+            tag = '<span class="tag par">Proposée par le tuteur</span>'
+        status = ""          # les titres de zone (« À toi de répondre », « En attente… ») disent déjà l'état
+        if kind == "active":
+            when_signed = f" · {short_date(r['signed_at'])}" if r["signed_at"] else ""
+            status = f'<span class="signed">Signé à deux{when_signed}</span>'
+        html(
+            f'<div><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'
+            f'<div class="h-title" style="font-size:20px">{esc(r["title"])}</div><div>{status}</div></div>'
+            f'<p class="sub">{esc(r["apps"])} · {esc(r["slot"])}</p>'
+            f'<div style="margin-top:8px">{tag}</div>{sigs_html(r)}</div>'
+        )
+        c1, c2, _ = st.columns([1, 1, 1.4])
+        if kind == "mine":
+            if c1.button("Approuver", key=f"approve{r['id']}", type="primary"):
+                set_rule_ok(r["id"], my_col, 1)
+                st.rerun()
+        elif c1.button("Retirer mon accord", key=f"withdraw{r['id']}"):
+            set_rule_ok(r["id"], my_col, 0)
+            st.rerun()
+        if kind != "active" and c2.button("Supprimer", key=f"delete{r['id']}"):
+            execute("DELETE FROM rules WHERE id=?", (r["id"],))
+            st.rerun()
+
+
 with tab_rules:
-    heading("Co-décision", "Règles co-construites" if not is_teen else "Nos règles, à deux",
+    heading("Co-décision", "Nos règles, à deux" if is_teen else "Nos accords, à deux",
             "Une règle n'est valable que lorsque l'adolescent et un tuteur l'ont tous deux approuvée.")
     my_col = "teen_ok" if is_teen else "parent_ok"
-    for r in query("SELECT * FROM rules ORDER BY id DESC"):
-        active = rule_is_active(r)
-        with st.container(key=f"card_rule_{r['id']}"):
-            if r["proposed_by"] == "teen":
-                tag = '<span class="tag ado">Proposée par l\'ado</span>'
-            elif r["proposed_by"] == "app":
-                tag = '<span class="tag app">Suggérée par l\'application</span>'
-            else:
-                tag = '<span class="tag par">Proposée par le tuteur</span>'
-            state = '<span class="pill">Active</span>' if active else '<span class="pill coral">En discussion</span>'
-            ado_pill = f'<span class="pill {"" if r["teen_ok"] else "muted"}">Ado {"✓" if r["teen_ok"] else "en attente"}</span>'
-            par_pill = f'<span class="pill {"" if r["parent_ok"] else "muted"}">Tuteur {"✓" if r["parent_ok"] else "en attente"}</span>'
-            html(
-                f'<div><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">'
-                f'<div class="h-title" style="font-size:19px">{esc(r["title"])}</div>{state}</div>'
-                f'<p class="sub">{esc(r["apps"])} · {esc(r["slot"])}</p>'
-                f'<div style="margin-top:10px">{tag}</div>'
-                f'<div style="margin-top:10px">{ado_pill}{par_pill}</div></div>'
-            )
-            c1, c2 = st.columns(2)
-            if r[my_col]:
-                if c1.button("Retirer mon accord", key=f"withdraw{r['id']}"):
-                    execute(f"UPDATE rules SET {my_col}=0 WHERE id=?", (r["id"],))
-                    st.rerun()
-            else:
-                if c1.button("Approuver", key=f"approve{r['id']}", type="primary"):
-                    execute(f"UPDATE rules SET {my_col}=1 WHERE id=?", (r["id"],))
-                    st.rerun()
-            if not active:
-                if c2.button("Supprimer", key=f"delete{r['id']}"):
-                    execute("DELETE FROM rules WHERE id=?", (r["id"],))
-                    st.rerun()
-
-    with st.container(key="card_newrule"):
-        html('<div class="h-title" style="font-size:19px">Proposer une règle</div>')
-        with st.form("new_rule", clear_on_submit=True):
-            title = st.text_input("Intitulé", placeholder="Pas d'écran pendant les repas")
-            rule_apps = st.pills("Applications concernées", APPS, selection_mode="multi")
-            slot = st.text_input("Créneau", placeholder="Tous les jours 19h-20h")
-            if st.form_submit_button("Proposer", type="primary"):
-                if not title.strip() or not rule_apps:
-                    st.warning("Indiquez un intitulé et au moins une application.")
-                else:
-                    execute(
-                        "INSERT INTO rules(title, apps, slot, proposed_by, teen_ok, parent_ok) "
-                        "VALUES(?,?,?,?,?,?)",
-                        (title.strip(), ", ".join(rule_apps), slot.strip() or "Non précisé",
-                         who, int(is_teen), int(not is_teen)),
+    col_l, col_r = st.columns([3, 2], gap="large")
+    with col_l:
+        all_rules = query("SELECT * FROM rules ORDER BY id DESC")
+        to_answer = [r for r in all_rules if not rule_is_active(r) and not r[my_col]]
+        waiting_other = [r for r in all_rules if not rule_is_active(r) and r[my_col]]
+        signed = [r for r in all_rules if rule_is_active(r)]
+        if to_answer:
+            html(f'<div class="accords-h">{"À toi" if is_teen else "À vous"} de répondre</div>')
+            for r in to_answer:
+                render_rule_row(r, my_col, "mine")
+        if waiting_other:
+            html(f'<div class="accords-h">En attente de {esc("votre tuteur" if is_teen else nickname)}</div>')
+            for r in waiting_other:
+                render_rule_row(r, my_col, "theirs")
+        pal = palier_current()
+        html('<div class="accords-h">Nos accords</div>')
+        if not signed and not pal:
+            html('<div class="note"><p class="sub" style="margin:0">Rien de signé pour l\'instant : '
+                 "proposez une règle, elle sera valable dès que vous l'aurez approuvée tous les deux.</p></div>")
+        else:
+            with st.container(key="card_accords"):
+                if pal:
+                    pal_date = get_setting(f"palier_date_{pal}", "")
+                    html(
+                        f'<div style="padding:4px 0 14px;border-bottom:1px solid var(--line)"><div style="display:flex;'
+                        f'justify-content:space-between;gap:10px"><div class="h-title" style="font-size:20px">'
+                        f'Palier {pal} · {esc(PALIER_NAMES[pal])}</div><span class="signed">Signé à deux'
+                        f'{" · " + short_date(pal_date) if pal_date else ""}</span></div>'
+                        f'<p class="sub">{esc(PALIER_MEANING[pal][0 if is_teen else 1])}</p>'
+                        f'{sigs_html({"teen_ok": 1, "parent_ok": 1})}</div>'
                     )
-                    st.rerun()
+                for r in signed:
+                    render_rule_row(r, my_col, "active")
+    with col_r:
+        if st.button("Revoir nos réponses", key="review_answers"):
+            st.session_state["review_crossing"] = True
+            st.rerun()
+        with st.container(key="card_newrule"):
+            html('<div class="h-title" style="font-size:20px">Proposer une règle</div>')
+            with st.form("new_rule", clear_on_submit=True):
+                title = st.text_input("Intitulé", placeholder="Pas d'écran pendant les repas")
+                rule_apps = st.pills("Applications concernées", APPS, selection_mode="multi")
+                slot = st.text_input("Créneau", placeholder="Tous les jours 19h-20h")
+                if st.form_submit_button("Proposer", type="primary"):
+                    if not title.strip() or not rule_apps:
+                        st.warning("Indiquez un intitulé et au moins une application.")
+                    else:
+                        execute(
+                            "INSERT INTO rules(title, apps, slot, proposed_by, teen_ok, parent_ok) "
+                            "VALUES(?,?,?,?,?,?)",
+                            (title.strip(), ", ".join(rule_apps), slot.strip() or "Non précisé",
+                             who, int(is_teen), int(not is_teen)),
+                        )
+                        st.rerun()
 
-# --- Onglet Progression (récompenses selon la Q4 de l'ado) ---
+# --- Onglet Progression : une histoire (où j'en suis, ce qui m'attend), pas un inventaire ---
+def path_html(current, target, avatar, gauge, next_proposed):
+    """Le chemin d'autonomie : trois paliers reliés, l'avatar sur le palier actuel."""
+    out = ""
+    for n in (1, 2, 3):
+        date = short_date(get_setting(f"palier_date_{n}", ""))
+        signed_txt = "validé à deux" + (f" · {date}" if date else "")
+        slot = ""
+        if current and n < current:
+            cls, sub = "done", signed_txt
+        elif current == n:
+            cls, sub, slot = "here", signed_txt, esc(avatar)
+        elif current is None and n == target:
+            cls, sub, slot = "next", "proposé pour commencer", esc(avatar)
+        elif current and n == current + 1:
+            cls, sub = "next", "prêt à valider" if next_proposed else "prochain palier"
+        else:
+            cls, sub = "later", ""
+        out += (f'<div class="stop {cls}"><div class="slot">{slot}</div><i></i><b>Palier {n}</b>'
+                f'<span>{esc(PALIER_NAMES[n])}</span><small>{sub}</small></div>')
+        if n < 3:
+            if current and n < current:
+                fill = 100
+            elif current == n:
+                fill = 100 if next_proposed else gauge
+            else:
+                fill = 0
+            out += f'<div class="link"><em class="h" style="width:{fill}%"></em><em class="v" style="height:{fill}%"></em></div>'
+    return f'<div class="path">{out}</div>'
+
+
 with tab_progress:
     finished = query("SELECT * FROM sessions WHERE status IN ('completed', 'stopped') ORDER BY start DESC")
     done = [x for x in finished if x["status"] == "completed"]
     xp = total_xp()
     level_n, level_name, xp_in_level = level_info(xp)
     avatar = get_setting("avatar", AVATARS[0])
+    me = "teen" if is_teen else "tutor"
+    voice = 0 if is_teen else 1
+    current = palier_current()
+    target = palier_target(cfg)
+    next_proposed = bool(get_setting("palier_target", "")) and current is not None
+    gauge = gauge_percent()
 
+    # 1. Où j'en suis
     heading("Progression", "Ton parcours" if is_teen else "Son parcours")
-    level_html = ""
-    if level_reward:
-        level_html = (
-            f'<span class="pill" style="margin-top:6px">Niveau {level_n} · {esc(level_name)}</span>'
-        )
-    bar_html = ""
-    if level_reward:
-        bar_html = (f'<div class="xpbar"><i style="width:{xp_in_level}%"></i></div>'
-                    f'<p class="sub" style="margin:0">{xp} XP · encore {100 - xp_in_level} XP avant l\'étape suivante</p>')
-    else:
-        bar_html = f'<p class="sub" style="margin:10px 0 0">{xp} XP gagnés</p>'
+    shown = current or target
+    now_line = PALIER_NOW[current][voice] if current else f"Point de départ proposé : palier {target}."
+    level_line = f"Niveau {level_n} · {esc(level_name)}" if level_reward else "XP gagnés"
     html(
-        f'<div class="card"><div class="profile"><div class="avatar">{esc(avatar)}</div><div>'
-        f'<div class="h-title" style="font-size:22px">{esc(nickname)}</div>{level_html}</div></div>'
-        f'{bar_html}'
-        '<p class="sub">L\'XP récompense les engagements menés à terme. Arrêter plus tôt ne retire '
-        "aucun point : c'est une information, pas une sanction.</p></div>"
+        f'<div class="where"><div class="avatar">{esc(avatar)}</div><div class="txt">'
+        f'<div class="eyebrow" style="margin:0 0 4px">Où j\'en suis</div>'
+        f'<div class="h-title">Palier {shown} · {esc(PALIER_NAMES[shown])}</div>'
+        f'<p class="sub">{esc(now_line)}</p></div>'
+        f'<div class="xp"><b>{xp} XP</b><span>{level_line}</span></div></div>'
     )
 
-    if instant_reward:
-        recent = done[:5]
-        rows = "".join(
-            f'<div class="tl-item"><div class="tl-dot"></div><div><b>{esc(x["goal"])}</b>'
-            f'<small>+{x["xp"]} XP · session menée à terme</small></div></div>' for x in recent
-        ) or '<p class="sub" style="margin:0">Tes prochaines récompenses apparaîtront ici.</p>'
+    # 2. Le chemin d'autonomie
+    html(path_html(current, target, avatar, gauge, next_proposed))
+
+    # 3. Ce qui m'attend : le prochain palier, au centre
+    pending = current is None or next_proposed
+    upcoming = target if pending else (current + 1 if current and current < 3 else None)
+    with st.container(key="card_next"):
+        if upcoming:
+            eyebrow = ("Votre point de départ" if current is None
+                       else "Prêt pour le palier suivant" if next_proposed else "Prochain palier")
+            html(
+                f'<div class="nextp"><div class="eyebrow">{eyebrow}</div>'
+                f'<div class="h-title">Palier {upcoming} · {esc(PALIER_NAMES[upcoming])}</div>'
+                f'<div class="lbl">Ce que ça veut dire</div><p class="sub" style="margin:0;color:var(--ink)">'
+                f'{esc(PALIER_MEANING[upcoming][voice])}</p></div>'
+            )
+            if pending:
+                html(sigs_html({"teen_ok": int(palier_validated_by("teen")), "parent_ok": int(palier_validated_by("tutor"))}))
+                if not palier_validated_by(me):
+                    if st.button("Valider ce palier", type="primary", key="palier_validate_prog"):
+                        validate_palier(me, cfg)
+                        st.rerun()
+                else:
+                    html('<p class="sub">Ta signature est posée : on attend l\'autre.</p>' if is_teen
+                         else '<p class="sub">Votre signature est posée : on attend ' + esc(nickname) + '.</p>')
+            else:
+                word = gauge_word(gauge)
+                words = ["Début", "En route", "Presque", "Prêt"]
+                marks = "".join(f'<span class="{"on" if words.index(w) <= words.index(word) else ""}">{w}</span>' for w in words)
+                html(
+                    '<div class="nextp"><div class="lbl">Comment avancer</div>'
+                    f'<p class="sub" style="margin:0;color:var(--ink)">Chaque jour où {"tu tiens" if is_teen else "votre ado tient"} '
+                    "un engagement fait avancer le chemin.</p>"
+                    f'<div class="xpbar" style="margin-top:14px"><i style="width:{gauge}%"></i></div>'
+                    f'<div class="gauge-words">{marks}</div></div>'
+                )
+        else:
+            html(
+                '<div class="nextp"><div class="eyebrow">Palier 3 atteint</div>'
+                f'<div class="h-title">{esc(PALIER_NOW[3][voice])}</div>'
+                '<p class="sub">Ce qui compte maintenant : la régularité.</p></div>'
+            )
+
+    # 4. L'effort raconté par l'XP, et les souvenirs de route
+    col_l, col_r = st.columns([1, 1], gap="large")
+    with col_l:
+        week_sessions = [x for x in done if x["start"][:10] >= week_monday().isoformat()]
+        week_xp = sum(x["xp"] for x in week_sessions)
         n_tasks = query("SELECT COUNT(*) AS n FROM todos WHERE done=1")[0]["n"]
-        html('<div class="card"><div class="eyebrow" style="margin-top:0">Récompenses récentes</div>'
-             f'<div class="timeline">{rows}</div>'
-             f'<p class="sub">{n_tasks} tâche(s) cochée(s) · +{TODO_XP} XP chacune.</p></div>')
-    if level_reward:
-        html('<div class="eyebrow">Étapes</div>')
-        for n, name in enumerate(LEVELS):
-            reached = level_n - 1 >= n
-            html(f'<div class="opt{"" if reached else " locked"}"><div class="emoji">{"🏁" if reached else "🔒"}</div>'
-                 f"<div><b>{esc(name)}</b><small>À partir de {n * 100} XP</small></div></div>")
-
-    current = palier_current()
-    if current and current < 3 and not get_setting("palier_target", ""):
-        html('<div class="card"><div class="eyebrow" style="margin-top:0">Vers le palier suivant</div>'
-             f'<div class="xpbar"><i style="width:{gauge_percent()}%"></i></div>'
-             '<p class="sub" style="margin:0">Elle avance chaque jour où un engagement est tenu.</p></div>')
-
-    if is_teen:
-        with st.container(key="card_profile"):
-            html('<div class="h-title" style="font-size:19px">Personnaliser</div>')
-            choice = st.pills("Avatar", AVATARS, default=avatar)
-            new_name = st.text_input("Pseudo", value=nickname)
-            if choice and choice != avatar:
-                set_setting("avatar", choice)
-                st.rerun()
-            if new_name.strip() and new_name.strip() != nickname:
-                set_setting("nickname", new_name.strip())
-                st.rerun()
-
-    html('<div class="eyebrow">Badges</div>')
-    active_rules = [r for r in query("SELECT * FROM rules") if rule_is_active(r)]
-    for name, desc, earned in compute_badges(done, active_rules):
-        html(
-            f'<div class="opt{"" if earned else " locked"}"><div class="emoji">{"🏅" if earned else "🔒"}</div>'
-            f"<div><b>{esc(name)}</b><small>{esc(desc)}</small></div></div>"
+        if week_sessions:
+            bilan = (f"{plural(len(week_sessions), 'session tenue', 'sessions tenues')}, +{week_xp} XP")
+        else:
+            bilan = "Pas encore de session menée à terme cette semaine"
+        tasks_line = f'<p class="sub">{plural(n_tasks, "tâche cochée", "tâches cochées")} au total · +{TODO_XP} XP chacune.</p>'
+        html(sec("Cette semaine", f'<p class="sub" style="margin:0;color:var(--ink);font-weight:600;font-size:17px">{esc(bilan)}</p>{tasks_line}'))
+        if level_reward:
+            steps = "".join(
+                f'<div class="step {"on" if level_n - 1 >= n else "off"}"><i></i><b>{esc(name)}</b>'
+                f"<small>{n * 100} XP</small></div>"
+                for n, name in enumerate(LEVELS)
+            )
+            html(sec("Niveaux", f'<div class="steps">{steps}</div>'
+                     f'<p class="sub">{xp_in_level} XP sur 100 · encore {100 - xp_in_level} XP avant le niveau suivant.</p>'))
+        if instant_reward:
+            rows = "".join(
+                f'<div class="tl-item"><div class="tl-dot"></div><div><b>{esc(x["goal"])}</b>'
+                f'<small>+{x["xp"]} XP · session menée à terme</small></div></div>' for x in done[:5]
+            ) or '<p class="sub" style="margin:0">Tes prochaines récompenses apparaîtront ici.</p>'
+            html(sec("Récompenses récentes", f'<div class="timeline">{rows}</div>'))
+        html('<p class="sub">Arrêter plus tôt ne retire aucun point : c\'est une information, pas une sanction.</p>')
+        if is_teen:
+            with st.expander("Modifier mon avatar"):
+                choice = st.pills("Avatar", AVATARS, default=avatar)
+                new_name = st.text_input("Pseudo", value=nickname)
+                if choice and choice != avatar:
+                    set_setting("avatar", choice)
+                    st.rerun()
+                if new_name.strip() and new_name.strip() != nickname:
+                    set_setting("nickname", new_name.strip())
+                    st.rerun()
+    with col_r:
+        active_rules = [r for r in query("SELECT * FROM rules") if rule_is_active(r)]
+        badges_html = "".join(
+            f'<div class="opt{"" if earned else " todo"}"><div class="emoji">{"🏅" if earned else "○"}</div>'
+            f'<div><b>{esc(name)}</b><small>{esc(desc)}</small>'
+            f'{"" if earned else f"<span class=prog>{prog}</span>"}</div></div>'
+            for name, desc, earned, prog in compute_badges(done, active_rules)
         )
+        html(sec("Souvenirs de route", f'<div class="badge-grid" style="grid-template-columns:1fr">{badges_html}</div>'))
 
 
 # --- Onglet Réglages : ce que les réponses règlent ---
-def setting_card(title, text, caption="", chips=None):
-    chips_html = f'<div style="margin-top:8px">{pills_html(chips)}</div>' if chips else ""
-    caption_html = f'<p class="sub" style="font-size:12px">{esc(caption)}</p>' if caption else ""
-    html(f'<div class="card"><div class="h-title" style="font-size:18px">{esc(title)}</div>'
-         f'<p class="sub">{esc(text)}</p>{chips_html}{caption_html}</div>')
+def dl_row(title, text, caption="", chips=None):
+    chips_html = f'<div class="chips">{pills_html(chips)}</div>' if chips else ""
+    caption_html = f"<small>{esc(caption)}</small>" if caption else ""
+    return (f'<div class="dl-row"><div class="dl-k">{esc(title)}</div>'
+            f'<div class="dl-v">{esc(text)}{chips_html}{caption_html}</div></div>')
+
+
+def render_dl(rows):
+    html('<div class="dl">' + "".join(rows) + "</div>")
 
 
 with tab_settings:
     me = "teen" if is_teen else "tutor"
     heading("Paramétrage", "Ce que vos réponses règlent",
             "Chaque réglage vient du questionnaire. Rien n'est caché, et tout peut être rediscuté ensemble.")
+    col_l, col_r = st.columns([2, 3], gap="large")
 
-    # Palier : proposition de départ, puis passages validés à deux
-    current = palier_current()
-    target = palier_target(cfg)
-    pending = current is None or bool(get_setting("palier_target", ""))
-    shown = target if pending else current
-    p_title, p_text = PALIERS[shown]
-    if current is None:
-        eyebrow = "Palier de départ proposé"
-    elif pending:
-        eyebrow = "Conditions réunies pour passer au palier suivant"
-    else:
-        eyebrow = "Palier actuel"
-    note = ""
-    if current is None and cfg["palier_gap"]:
-        note = ('<p class="sub" style="color:var(--teal);font-weight:600">Les réponses ne sont pas identiques : '
-                "le palier le plus bas est proposé, et c'est le premier sujet à discuter.</p>")
-    status = ""
-    if pending:
-        status = (f'<div style="margin-top:10px"><span class="pill {"" if palier_validated_by("teen") else "muted"}">Ado '
-                  f'{"✓" if palier_validated_by("teen") else "en attente"}</span>'
-                  f'<span class="pill {"" if palier_validated_by("tutor") else "muted"}">Tuteur '
-                  f'{"✓" if palier_validated_by("tutor") else "en attente"}</span></div>')
-    html(f'<div class="card"><div class="eyebrow" style="margin-top:0">{esc(eyebrow)}</div>'
-         f'<div class="h-title" style="font-size:19px">{esc(p_title)}</div><p class="sub">{esc(p_text)}</p>{note}{status}</div>')
-    if pending and not palier_validated_by(me):
-        if st.button("Valider ce palier", type="primary", key="palier_validate"):
-            validate_palier(me, cfg)
-            st.rerun()
+    with col_l:
+        # Palier : proposition de départ, puis passages validés à deux
+        current = palier_current()
+        target = palier_target(cfg)
+        pending = current is None or bool(get_setting("palier_target", ""))
+        shown = target if pending else current
+        p_title, p_text = PALIERS[shown]
+        if current is None:
+            eyebrow = "Palier de départ proposé"
+        elif pending:
+            eyebrow = "Conditions réunies pour passer au palier suivant"
+        else:
+            eyebrow = "Palier actuel"
+        note = ""
+        if current is None and cfg["palier_gap"]:
+            note = ('<p class="sub" style="color:var(--amber-ink);font-weight:600">Les réponses ne sont pas identiques : '
+                    "le palier le plus bas est proposé, et c'est le premier sujet à discuter.</p>")
+        status = ""
+        if pending:
+            status = (f'<div style="margin-top:12px"><span class="pill {"" if palier_validated_by("teen") else "muted"}">Ado '
+                      f'{"✓" if palier_validated_by("teen") else "en attente"}</span>'
+                      f'<span class="pill {"" if palier_validated_by("tutor") else "muted"}">Tuteur '
+                      f'{"✓" if palier_validated_by("tutor") else "en attente"}</span></div>')
+        html(f'<div class="card"><div class="eyebrow" style="margin-top:0">{esc(eyebrow)}</div>'
+             f'<div class="h-title" style="font-size:26px">{esc(p_title)}</div><p class="sub">{esc(p_text)}</p>{note}{status}</div>')
+        if pending and not palier_validated_by(me):
+            if st.button("Valider ce palier", type="primary", key="palier_validate"):
+                validate_palier(me, cfg)
+                st.rerun()
 
-    setting_card("Objectifs proposés", "Ils apparaissent quand on lance une session.",
-                 "D'après : ce que l'ado fait en dehors des écrans.", cfg["objectives"])
-    todo_preview = default_todos(cfg)
-    setting_card("Todolist", "Elle apparaît à la première activation d'une session, pré-remplie. "
-                 "L'ado peut tout renommer, supprimer ou compléter.",
-                 "D'après : ce que l'ado fait en dehors des écrans.",
-                 todo_preview or ["Aucune tâche pré-remplie"])
-    setting_card("Rappels",
-                 f"Préavis à 10 et 5 minutes avant un créneau : {ALERT_TEXT[cfg['alert']]}. "
-                 f"« Je finis ma partie » reporte le début de {POSTPONE_MINUTES} minutes, "
-                 f"{POSTPONE_QUOTA} fois par semaine, une fois par créneau.",
-                 "D'après : ce qui aide à s'arrêter (l'option la plus soutenante parmi les réponses).")
-    if cfg["pauses"]:
-        interval, brk = cfg["pauses"]
-        setting_card("Pauses", f"Une pause courte de {brk} minutes est proposée toutes les {interval} minutes pendant une session.",
-                     "D'après : le temps de concentration (la valeur la plus basse parmi les réponses).")
-    else:
-        setting_card("Pauses", "Pas de pause automatique.",
-                     "D'après : le temps de concentration (la valeur la plus basse parmi les réponses).")
-    setting_card("Récompenses", REWARD_TEXT[cfg["reward"]], "D'après : la réponse de l'ado.")
-    setting_card("Blocage nocturne", NIGHT_TEXT[cfg["night"]],
-                 "D'après : la réponse la plus élevée parmi les réponses.")
-    has_night_rule = any(r["title"] == NIGHT_RULE_TITLE for r in query("SELECT title FROM rules"))
-    if cfg["night"] == "parfois" and not has_night_rule:
-        if st.button("Proposer le blocage nocturne", key="night_propose"):
-            create_night_rule(who, int(is_teen), int(not is_teen))
-            st.rerun()
-    setting_card("Tableau partagé", STATS_TEXT[cfg["stats"]], "D'après : les tensions à la maison déclarées par l'ado.")
-    setting_card("Applications présélectionnées",
-                 "Elles sont cochées au moment de lancer une session, à valider une par une.",
-                 "D'après : ce que l'ado aime faire sur ses écrans.",
-                 cfg["apps"] or ["Aucune : l'ado choisit librement"])
-    setting_card("Module mis en avant", MODULES[cfg["module"]][0],
-                 "D'après : la préoccupation principale du tuteur.")
+    with col_r:
+        rows_a = [
+            dl_row("Objectifs proposés", "Ils apparaissent quand on lance une session.",
+                   "D'après : ce que l'ado fait en dehors des écrans.", cfg["objectives"]),
+            dl_row("Todolist", "Elle apparaît à la première activation d'une session, pré-remplie. "
+                   "L'ado peut tout renommer, supprimer ou compléter.",
+                   "D'après : ce que l'ado fait en dehors des écrans.",
+                   default_todos(cfg) or ["Aucune tâche pré-remplie"]),
+            dl_row("Rappels",
+                   f"Préavis à 10 et 5 minutes avant un créneau : {ALERT_TEXT[cfg['alert']]}. "
+                   f"« Je finis ma partie » reporte le début de {POSTPONE_MINUTES} minutes, "
+                   f"{POSTPONE_QUOTA} fois par semaine, une fois par créneau.",
+                   "D'après : ce qui aide à s'arrêter (l'option la plus soutenante parmi les réponses)."),
+        ]
+        if cfg["pauses"]:
+            interval, brk = cfg["pauses"]
+            rows_a.append(dl_row("Pauses", f"Une pause courte de {brk} minutes est proposée toutes les {interval} minutes pendant une session.",
+                                 "D'après : le temps de concentration (la valeur la plus basse parmi les réponses)."))
+        else:
+            rows_a.append(dl_row("Pauses", "Pas de pause automatique.",
+                                 "D'après : le temps de concentration (la valeur la plus basse parmi les réponses)."))
+        rows_a.append(dl_row("Récompenses", REWARD_TEXT[cfg["reward"]], "D'après : la réponse de l'ado."))
+        rows_a.append(dl_row("Blocage nocturne", NIGHT_TEXT[cfg["night"]],
+                             "D'après : la réponse la plus élevée parmi les réponses."))
+        render_dl(rows_a)
+        has_night_rule = any(r["title"] == NIGHT_RULE_TITLE for r in query("SELECT title FROM rules"))
+        if cfg["night"] == "parfois" and not has_night_rule:
+            if st.button("Proposer le blocage nocturne", key="night_propose"):
+                create_night_rule(who, int(is_teen), int(not is_teen))
+                st.rerun()
+        render_dl([
+            dl_row("Tableau partagé", STATS_TEXT[cfg["stats"]], "D'après : les tensions à la maison déclarées par l'ado."),
+            dl_row("Applications présélectionnées",
+                   "Elles sont cochées au moment de lancer une session, à valider une par une.",
+                   "D'après : ce que l'ado aime faire sur ses écrans.",
+                   cfg["apps"] or ["Aucune : l'ado choisit librement"]),
+            dl_row("Module mis en avant", MODULES[cfg["module"]][0], "D'après : la préoccupation principale du tuteur."),
+        ])
 
 html(
     '<div class="hint"><b>Prototype</b> · le blocage réel des applications n\'est pas encore branché : '
